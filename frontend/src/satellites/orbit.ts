@@ -6,16 +6,20 @@ export function createSatrec(line1: string, line2: string) {
 }
 
 export function getPosition(satrec: satellite.SatRec) {
-
   const now = new Date()
+  return getPositionAtTime(satrec, Cesium.JulianDate.fromDate(now))
+}
 
-  const pv = satellite.propagate(satrec, now)
-
+// Get position at a specific Cesium time
+export function getPositionAtTime(satrec: satellite.SatRec, cesiumTime: Cesium.JulianDate): { lat: number; lon: number; alt: number } | null {
+  const jsDate = Cesium.JulianDate.toDate(cesiumTime)
+  
+  const pv = satellite.propagate(satrec, jsDate)
   if (!pv?.position) return null
 
-  const gmst = satellite.gstime(now)
-
+  const gmst = satellite.gstime(jsDate)
   const geo = satellite.eciToGeodetic(pv.position, gmst)
+  
   return {
     lat: satellite.degreesLat(geo.latitude),
     lon: satellite.degreesLong(geo.longitude),
@@ -43,24 +47,25 @@ export function classifySatellite(name: string): string {
 
 
 export interface OrbitSegments {
-  past: Cesium.Cartesian3[]
-  future: Cesium.Cartesian3[]
+  positions: Cesium.Cartesian3[]
 }
 
-// Returns past and future orbit segments for professional visualization
+// Returns a single clean orbital loop for visualization
 export function getOrbitSegments(satrec: satellite.SatRec): OrbitSegments {
-  const past: Cesium.Cartesian3[] = []
-  const future: Cesium.Cartesian3[] = []
+  const positions: Cesium.Cartesian3[] = []
 
   const now = new Date()
 
   // Period in minutes = 2π / meanMotion (satrec.no is in radians/minute)
   const periodMinutes = (2 * Math.PI) / satrec.no
 
-  const step = 2 // minutes
+  // Use smaller step for smoother orbits (0.5 minutes = 30 seconds)
+  // This gives ~240 points for a 2-hour orbit, ~180 points for a 90-minute LEO orbit
+  const step = 0.5
 
-  // Calculate from -period to +period (full orbit behind and ahead)
-  for (let t = -periodMinutes; t <= periodMinutes; t += step) {
+  // Sample from 0 to periodMinutes (one full orbit starting from current position)
+  // This produces a clean closed loop without twisted paths
+  for (let t = 0; t <= periodMinutes; t += step) {
     const time = new Date(now.getTime() + t * 60000)
 
     const pv = satellite.propagate(satrec, time)
@@ -76,12 +81,8 @@ export function getOrbitSegments(satrec: satellite.SatRec): OrbitSegments {
 
     const pos = Cesium.Cartesian3.fromDegrees(lon, lat, alt)
 
-    if (t < 0) {
-      past.push(pos)
-    } else {
-      future.push(pos)
-    }
+    positions.push(pos)
   }
 
-  return { past, future }
+  return { positions }
 }

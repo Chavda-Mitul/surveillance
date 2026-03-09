@@ -38,6 +38,11 @@ export const styles = {
     color: "white",
   } as CSSProperties,
 
+  dropdown: {
+    display: "flex",
+    flexDirection: "column",
+  } as CSSProperties,
+
   helpPanel: {
     position: "absolute",
     bottom: 10,

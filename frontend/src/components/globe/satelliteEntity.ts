@@ -1,5 +1,5 @@
 import * as Cesium from "cesium"
-import { createSatrec, getPosition, classifySatellite } from "../../satellites/orbit"
+import { createSatrec, getPositionAtTime, classifySatellite } from "../../satellites/orbit"
 import type { SatelliteRefs } from "./types"
 import { SATELLITE_ICONS, SATELLITE_COLORS } from "./constants"
 
@@ -11,9 +11,8 @@ export function createSatelliteEntity(
   const satrec = createSatrec(sat.line1, sat.line2)
   const id = `${sat.name}-${sat.line1.slice(2, 7)}`
   const type = classifySatellite(sat.name)
-  const position = getPosition(satrec)
 
-  if (!position) return
+  if (!satrec) return
 
   refs.satrecs[id] = satrec
 
@@ -29,9 +28,39 @@ export function createSatelliteEntity(
   // Labels only show when close to Earth (within 2,000km)
   const labelDistanceCondition = new Cesium.DistanceDisplayCondition(0, 2000000)
 
+  // Create a sampled position property for smooth animation
+  const positionProperty = new Cesium.SampledPositionProperty()
+  positionProperty.setInterpolationOptions({
+    interpolationDegree: 2,
+    interpolationAlgorithm: Cesium.LagrangePolynomialApproximation,
+  })
+
+  // Pre-populate with position samples for smooth interpolation
+  const now = Cesium.JulianDate.now()
+  const updateInterval = 30 // seconds between samples
+  const numSamples = 20 // number of future samples
+
+  for (let i = -2; i < numSamples; i++) {
+    const time = Cesium.JulianDate.addSeconds(now, i * updateInterval, new Cesium.JulianDate())
+    const position = getPositionAtTime(satrec, time)
+    
+    if (position) {
+      const cartesian = Cesium.Cartesian3.fromDegrees(position.lon, position.lat, position.alt)
+      positionProperty.addSample(time, cartesian)
+    }
+  }
+
+  // Set the entity to use the sampled position property
+  // This enables Cesium to interpolate positions smoothly
   const entity = viewer.entities.add({
     id,
-    position: Cesium.Cartesian3.fromDegrees(position.lon, position.lat, position.alt),
+    position: positionProperty,
+    availability: new Cesium.TimeIntervalCollection([
+      new Cesium.TimeInterval({
+        start: Cesium.JulianDate.addSeconds(now, -60, new Cesium.JulianDate()),
+        stop: Cesium.JulianDate.addSeconds(now, numSamples * updateInterval, new Cesium.JulianDate()),
+      }),
+    ]),
     ...(isISS
       ? {
           // ISS: Use billboard with SVG icon
@@ -61,7 +90,6 @@ export function createSatelliteEntity(
             color: color,
             outlineColor: Cesium.Color.WHITE,
             outlineWidth: 1,
-            // Scale by distance for points
             scaleByDistance: scaleByDistance,
           },
           label: {
@@ -81,16 +109,43 @@ export function createSatelliteEntity(
   refs.entities[id] = entity
 }
 
+// Export function to update positions periodically
 export function updateSatellitePositions(refs: SatelliteRefs) {
+  const now = Cesium.JulianDate.now()
+  const updateInterval = 30
+  const numSamples = 20
+
   Object.keys(refs.satrecs).forEach((id) => {
     const satrec = refs.satrecs[id]
-    const position = getPosition(satrec)
     const entity = refs.entities[id]
 
-    if (!position || !entity) return
+    if (!satrec || !entity) return
+    if (!entity.position) return
 
-    entity.position = new Cesium.ConstantPositionProperty(
-      Cesium.Cartesian3.fromDegrees(position.lon, position.lat, position.alt)
-    )
+    const positionProperty = entity.position as Cesium.SampledPositionProperty
+
+    // Add new position samples
+    for (let i = 0; i < numSamples; i++) {
+      const time = Cesium.JulianDate.addSeconds(now, i * updateInterval, new Cesium.JulianDate())
+      const position = getPositionAtTime(satrec, time)
+
+      if (position) {
+        const cartesian = Cesium.Cartesian3.fromDegrees(position.lon, position.lat, position.alt)
+        
+        // Only add if we don't already have a sample close to this time
+        const existingSamples = positionProperty.getValue(time)
+        if (!existingSamples) {
+          positionProperty.addSample(time, cartesian)
+        }
+      }
+    }
+
+    // Update availability to extend the time range
+    entity.availability = new Cesium.TimeIntervalCollection([
+      new Cesium.TimeInterval({
+        start: Cesium.JulianDate.addSeconds(now, -60, new Cesium.JulianDate()),
+        stop: Cesium.JulianDate.addSeconds(now, numSamples * updateInterval, new Cesium.JulianDate()),
+      }),
+    ])
   })
 }

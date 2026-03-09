@@ -66,35 +66,22 @@ export function setupDoubleClickHandler(
     refs.orbitPaths.forEach((e) => viewer.entities.remove(e))
     refs.orbitPaths = []
 
-    const { past, future } = getOrbitSegments(satrec)
+    const { positions } = getOrbitSegments(satrec)
 
-    // Past orbit (faded)
-    if (past.length > 1) {
-      const pastEntity = viewer.entities.add({
+    // Draw a single clean orbital loop
+    if (positions.length > 1) {
+      const orbitEntity = viewer.entities.add({
         polyline: {
-          positions: past,
+          positions: positions,
           width: 2,
-          material: Cesium.Color.YELLOW.withAlpha(0.25),
-          arcType: Cesium.ArcType.NONE,
-        },
-      })
-      refs.orbitPaths.push(pastEntity)
-    }
-
-    // Future orbit (bright with glow)
-    if (future.length > 1) {
-      const futureEntity = viewer.entities.add({
-        polyline: {
-          positions: future,
-          width: 3,
           material: new Cesium.PolylineGlowMaterialProperty({
             glowPower: 0.2,
-            color: Cesium.Color.YELLOW,
+            color: Cesium.Color.YELLOW.withAlpha(0.7),
           }),
           arcType: Cesium.ArcType.NONE,
         },
       })
-      refs.orbitPaths.push(futureEntity)
+      refs.orbitPaths.push(orbitEntity)
     }
   }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK)
 }

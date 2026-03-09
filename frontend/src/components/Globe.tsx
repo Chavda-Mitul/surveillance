@@ -1,103 +1,95 @@
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useImperativeHandle, forwardRef } from "react"
 import * as Cesium from "cesium"
-import { useSatellites } from "../satellites/useSatellites"
-import { classifySatellite } from "../satellites/orbit"
+import { LayerManager } from "../app/LayerManager"
+import { SatelliteLayer } from "../app/layers/satellite/SatelliteLayer"
+import type { SatelliteFilter } from "./globe/types"
+import type { SatelliteData } from "../app/layers/satellite/satelliteTypes"
 
-import type  { SatelliteFilter, SatelliteRefs } from "./globe/types"
-import { styles } from "./globe/styles"
-import { SatelliteControls } from "./globe/FilterButtons"
-import { HelpPanel } from "./globe/HelpPanel" 
-import { setupHoverHandler, setupClickHandler, setupDoubleClickHandler } from "./globe/handlers"
-import { createSatelliteEntity, updateSatellitePositions } from "./globe/satelliteEntity"
+interface GlobeProps {
+  filter: SatelliteFilter
+  onFilterChange: (filter: SatelliteFilter) => void
+  onStopTracking: () => void
+}
 
-export default function Globe() {
+export interface GlobeRef {
+  layerManager: LayerManager
+}
+
+/**
+ * Globe component - renders Cesium viewer with layer management
+ * Responsible only for Cesium visualization, not UI state
+ */
+function GlobeInner({ filter, onFilterChange, onStopTracking }: GlobeProps, ref: React.Ref<GlobeRef>) {
   const viewerRef = useRef<Cesium.Viewer | null>(null)
-  const refsRef = useRef<SatelliteRefs>({
-    entities: {},
-    satrecs: {},
-    orbitPaths: [],
-  })
+  const layerManagerRef = useRef<LayerManager | null>(null)
+  const satelliteLayerRef = useRef<SatelliteLayer | null>(null)
 
-  const [filter, setFilter] = useState<SatelliteFilter>("gps")
-  const { data: satellites } = useSatellites()
+  // Expose layer manager to parent
+  useImperativeHandle(ref, () => ({
+    get layerManager() {
+      return layerManagerRef.current!
+    },
+  }))
 
-  // Initialize Cesium viewer with clock enabled for smooth animation
+  // Initialize Cesium viewer and layer manager
   useEffect(() => {
     Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN
     const viewer = new Cesium.Viewer("globe", {
       timeline: true,
       animation: true,
       shouldAnimate: true,
-
     })
-
-    // Configure the clock for real-time simulation
-    viewer.clock.shouldAnimate = true
-    viewer.clock.multiplier = 1  // Real-time speed
-    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP
-    viewer.clock.currentTime = Cesium.JulianDate.now()
 
     viewerRef.current = viewer
 
-    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
-    setupHoverHandler(viewer, handler)
-    setupClickHandler(viewer, handler)
-    setupDoubleClickHandler(viewer, handler, refsRef.current)
+    // Create layer manager
+    const layerManager = new LayerManager(viewer)
+    layerManagerRef.current = layerManager
+
+    // Create and register satellite layer
+    const satelliteLayer = new SatelliteLayer(viewer)
+    satelliteLayerRef.current = satelliteLayer
+    layerManager.register("satellite", satelliteLayer)
+
+    // Pass data source to layer for entity management
+    const dataSource = layerManager.getDataSource("satellite")
+    if (dataSource) {
+      satelliteLayer.setDataSource(dataSource)
+    }
 
     return () => {
-      handler.destroy()
+      layerManager.dispose()
       viewer.destroy()
     }
   }, [])
 
-  // Populate satellites
+  // Handle filter changes
   useEffect(() => {
-    if (!satellites || !viewerRef.current) return
+    const satelliteLayer = satelliteLayerRef.current
+    if (satelliteLayer) {
+      satelliteLayer.setFilter(filter)
+    }
+  }, [filter])
 
-    const viewer = viewerRef.current
-    const refs = refsRef.current
-
-    viewer.entities.removeAll()
-    refs.orbitPaths = []
-    refs.entities = {}
-    refs.satrecs = {}
-
-    const filtered = satellites.filter((sat) => {
-      if (filter === "all") return true
-      return classifySatellite(sat.name) === filter
-    })
-
-    filtered.forEach((sat) => createSatelliteEntity(viewer, sat, refs))
-  }, [filter, satellites])
-
-  // Update positions periodically with new samples for continuous smooth animation
+  // Handle stop tracking
   useEffect(() => {
-    if (!viewerRef.current || !satellites) return
+    const handleStopTrackingEvent = () => {
+      satelliteLayerRef.current?.stopTracking()
+    }
 
-    const interval = setInterval(() => {
-      updateSatellitePositions(refsRef.current)
-    }, 10000) // Update every 10 seconds with new position samples
-
-    return () => clearInterval(interval)
-  }, [satellites, filter])
-
-  const stopTracking = useCallback(() => {
-    if (!viewerRef.current) return
-
-    viewerRef.current.trackedEntity = undefined
-    refsRef.current.orbitPaths.forEach((e) => viewerRef.current?.entities.remove(e))
-    refsRef.current.orbitPaths = []
+    window.addEventListener("stopTracking", handleStopTrackingEvent)
+    return () => {
+      window.removeEventListener("stopTracking", handleStopTrackingEvent)
+    }
   }, [])
 
   return (
-    <div style={styles.container}>
-      <SatelliteControls
-        currentFilter={filter}
-        onFilterChange={setFilter}
-        onStopTracking={stopTracking}
-      />
-      {/* <HelpPanel /> */}
-      <div id="globe" style={styles.globe} />
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div id="globe" style={{ width: "100%", height: "100%" }} />
     </div>
   )
 }
+
+// Wrap with forwardRef to expose layer manager
+export const Globe = forwardRef<GlobeRef, GlobeProps>(GlobeInner)
+export default Globe

@@ -2,15 +2,22 @@ import * as Cesium from "cesium"
 import type { Layer, LayerEvent } from "./Layer"
 
 /**
+ * Update interval in milliseconds
+ * Updates every 10 seconds to avoid performance issues
+ */
+const UPDATE_INTERVAL_MS = 10000
+
+/**
  * Manages multiple layers on a Cesium viewer
- * Handles layer registration, enabling, disabling, and updates
- * Uses Cesium's clock tick for synchronized updates
+ * Handles layer registration, enabling, disabling, and throttled updates
+ * Uses Cesium's clock tick with throttling for synchronized updates
  */
 export class LayerManager {
   private viewer: Cesium.Viewer
   private layers: Map<string, Layer> = new Map()
   private dataSources: Map<string, Cesium.CustomDataSource> = new Map()
   private removeTickListener: (() => void) | null = null
+  private lastUpdateTime = 0
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer
@@ -179,10 +186,21 @@ export class LayerManager {
   }
 
   /**
-   * Set up Cesium clock tick listener for synchronized updates
+   * Set up Cesium clock tick listener with throttling
+   * Only updates layers every UPDATE_INTERVAL_MS (10 seconds)
    */
   private setupTickListener(): void {
     this.removeTickListener = this.viewer.clock.onTick.addEventListener(() => {
+      const now = Date.now()
+      
+      // Throttle updates to avoid performance issues
+      // Calling update() every frame (60fps) would be too heavy
+      if (now - this.lastUpdateTime < UPDATE_INTERVAL_MS) {
+        return
+      }
+      
+      this.lastUpdateTime = now
+      
       this.layers.forEach((layer) => {
         if (layer.isEnabled()) {
           layer.update()

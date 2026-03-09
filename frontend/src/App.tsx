@@ -5,56 +5,64 @@ import { useSatellites } from "./satellites/useSatellites"
 import type { AppMode } from "./ui/modes"
 import type { SatelliteFilter } from "./components/globe/types"
 import type { SatelliteData } from "./app/layers/satellite/satelliteTypes"
+import { hasLoadData, hasStopTracking } from "./app/layers/satellite/types.guard"
 
+/**
+ * Main application component
+ * Manages top-level state and coordinates between UI and visualization layers
+ */
 function App() {
-  // Centralized state managed at App level
   const [activeMode, setActiveMode] = useState<AppMode>("satellite")
   const [satelliteFilter, setSatelliteFilter] = useState<SatelliteFilter>("gps")
-
-  // Ref to access layer manager
   const globeRef = useRef<GlobeRef>(null)
 
-  // Fetch satellite data
   const { data: satellites } = useSatellites()
 
-  // Load satellite data when layer is enabled
+  /**
+   * Load satellite data when layer is enabled
+   */
   useEffect(() => {
-    if (activeMode === "satellite" && satellites && globeRef.current) {
-      const layerManager = globeRef.current.layerManager
-      layerManager.enable("satellite")
+    if (activeMode !== "satellite" || !satellites || !globeRef.current) {
+      return
+    }
 
-      // Load data into satellite layer
-      const satelliteLayer = layerManager.getLayer("satellite")
-      if (satelliteLayer && "loadData" in satelliteLayer) {
-        (satelliteLayer as any).loadData(satellites as SatelliteData[])
-      }
+    const layerManager = globeRef.current.layerManager
+    layerManager.enable("satellite")
+
+    const satelliteLayer = layerManager.getLayer("satellite")
+    if (satelliteLayer && hasLoadData(satelliteLayer)) {
+      satelliteLayer.loadData(satellites as SatelliteData[])
     }
   }, [activeMode, satellites])
 
-  // Handle mode change
+  /**
+   * Handle mode switching
+   */
   const handleModeChange = useCallback((mode: AppMode) => {
     setActiveMode(mode)
 
-    // Enable/disable layers based on mode
-    if (globeRef.current) {
-      const layerManager = globeRef.current.layerManager
+    if (!globeRef.current) return
 
-      if (mode === "satellite") {
-        layerManager.enable("satellite")
-      } else {
-        layerManager.disable("satellite")
-      }
+    const layerManager = globeRef.current.layerManager
+
+    if (mode === "satellite") {
+      layerManager.enable("satellite")
+    } else {
+      layerManager.disable("satellite")
     }
   }, [])
 
-  // Handle for stop tracking
+  /**
+   * Stop tracking current satellite
+   */
   const handleStopTracking = useCallback(() => {
-    if (globeRef.current) {
-      const layerManager = globeRef.current.layerManager
-      const satelliteLayer = layerManager.getLayer("satellite")
-      if (satelliteLayer && "stopTracking" in satelliteLayer) {
-        (satelliteLayer as any).stopTracking()
-      }
+    if (!globeRef.current) return
+
+    const layerManager = globeRef.current.layerManager
+    const satelliteLayer = layerManager.getLayer("satellite")
+
+    if (satelliteLayer && hasStopTracking(satelliteLayer)) {
+      satelliteLayer.stopTracking()
     }
   }, [])
 

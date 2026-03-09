@@ -12,7 +12,7 @@ interface ModeButtonProps {
 /**
  * Reusable button component for sidebar mode navigation
  */
-export function ModeButton({ mode, label, icon, isActive, onClick }: ModeButtonProps) {
+export function ModeButton({ label, icon, isActive, onClick }: ModeButtonProps) {
   return (
     <button
       onClick={onClick}

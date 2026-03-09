@@ -1,29 +1,85 @@
-import Fastify from "fastify";
-import cors from "@fastify/cors";
-import satelliteRoutes from "./routes/satellite";
-import { connectRedis } from "./lib/redis";
-import { startSatelliteJob } from "./job/satelliteJob";
+import Fastify from "fastify"
+import cors from "@fastify/cors"
+import satelliteRoutes from "./routes/satellite"
+import { connectRedis, disconnectRedis } from "./lib/redis"
+import { startSatelliteJob } from "./job/satelliteJob"
+import { config } from "./config"
 
+/**
+ * Create and configure Fastify server
+ */
+const fastify = Fastify({
+  logger: {
+    level: process.env.LOG_LEVEL || "info",
+  },
+})
 
-const fastify = Fastify({ logger: true });
-
+/**
+ * Register CORS plugin
+ */
 fastify.register(cors, {
-  origin: "http://localhost:5173", // Vite dev server
-});
+  origin: config.cors.origin,
+})
 
-fastify.register(satelliteRoutes, { prefix: "/api" });
+/**
+ * Register routes
+ */
+fastify.register(satelliteRoutes, { prefix: "/api" })
 
-startSatelliteJob();
-
-const start = async () => {
-  try {
-    await connectRedis();
-    await fastify.listen({ port: 3000 });
-    console.log("Server running at http://localhost:3000");
-  } catch (err) {
-    fastify.log.error(err);
-    process.exit(1);
+/**
+ * Health check endpoint
+ */
+fastify.get("/health", async () => {
+  return {
+    status: "ok",
+    timestamp: new Date().toISOString(),
   }
-};
+})
 
-start();
+/**
+ * Start the server
+ */
+async function start(): Promise<void> {
+  try {
+    // Connect to Redis
+    await connectRedis()
+
+    // Start background jobs
+    startSatelliteJob()
+
+    // Start server
+    await fastify.listen({
+      port: config.server.port,
+      host: config.server.host,
+    })
+
+    console.log(`Server running at http://${config.server.host}:${config.server.port}`)
+  } catch (error) {
+    fastify.log.error(error)
+    process.exit(1)
+  }
+}
+
+/**
+ * Graceful shutdown
+ */
+async function shutdown(signal: string): Promise<void> {
+  console.log(`\n${signal} received, shutting down gracefully...`)
+
+  try {
+    await fastify.close()
+    await disconnectRedis()
+    console.log("Shutdown complete")
+    process.exit(0)
+  } catch (error) {
+    console.error("Error during shutdown:", error)
+    process.exit(1)
+  }
+}
+
+// Handle shutdown signals
+process.on("SIGINT", () => shutdown("SIGINT"))
+process.on("SIGTERM", () => shutdown("SIGTERM"))
+
+// Start the server
+start()

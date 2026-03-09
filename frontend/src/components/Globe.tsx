@@ -3,7 +3,6 @@ import * as Cesium from "cesium"
 import { LayerManager } from "../app/LayerManager"
 import { SatelliteLayer } from "../app/layers/satellite/SatelliteLayer"
 import type { SatelliteFilter } from "./globe/types"
-import type { SatelliteData } from "../app/layers/satellite/satelliteTypes"
 
 interface GlobeProps {
   filter: SatelliteFilter
@@ -19,7 +18,7 @@ export interface GlobeRef {
  * Globe component - renders Cesium viewer with layer management
  * Responsible only for Cesium visualization, not UI state
  */
-function GlobeInner({ filter, onFilterChange, onStopTracking }: GlobeProps, ref: React.Ref<GlobeRef>) {
+function GlobeInner({ filter }: GlobeProps, ref: React.Ref<GlobeRef>) {
   const viewerRef = useRef<Cesium.Viewer | null>(null)
   const layerManagerRef = useRef<LayerManager | null>(null)
   const satelliteLayerRef = useRef<SatelliteLayer | null>(null)

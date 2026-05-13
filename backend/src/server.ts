@@ -1,8 +1,10 @@
 import Fastify from "fastify"
 import cors from "@fastify/cors"
 import satelliteRoutes from "./routes/satellite"
+import vesselRoutes from "./routes/vessel"
 import { connectRedis, disconnectRedis } from "./lib/redis"
 import { startSatelliteJob } from "./job/satelliteJob"
+import { startVesselService, stopVesselService } from "./services/vesselService"
 import { config } from "./config"
 
 /**
@@ -25,6 +27,7 @@ fastify.register(cors, {
  * Register routes
  */
 fastify.register(satelliteRoutes, { prefix: "/api" })
+fastify.register(vesselRoutes, { prefix: "/api" })
 
 /**
  * Health check endpoint
@@ -46,6 +49,7 @@ async function start(): Promise<void> {
 
     // Start background jobs
     startSatelliteJob()
+    startVesselService()
 
     // Start server
     await fastify.listen({
@@ -68,6 +72,7 @@ async function shutdown(signal: string): Promise<void> {
 
   try {
     await fastify.close()
+    stopVesselService()
     await disconnectRedis()
     console.log("Shutdown complete")
     process.exit(0)

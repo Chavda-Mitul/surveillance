@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(npm install:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "PowerShell(Get-ChildItem \"D:\\\\Prep coding\\\\Surveillance\\\\backend\" | Where-Object { $_.Name -ne 'node_modules' } | Select-Object Name, PSIsContainer)",
+      "PowerShell(Get-ChildItem \"D:\\\\Prep coding\\\\Surveillance\\\\frontend\" | Where-Object { $_.Name -ne 'node_modules' } | Select-Object Name, PSIsContainer)",
+      "WebSearch",
+      "Bash(npx tsc *)",
+      "PowerShell(ls \"D:\\\\Prep coding\\\\Surveillance\\\\backend\\\\\")"
     ]
   }
 }

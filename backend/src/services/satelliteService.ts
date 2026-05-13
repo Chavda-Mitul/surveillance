@@ -4,41 +4,44 @@ import { TLESatellite } from "../schema/satellite"
 import { config } from "../config"
 import { CelestrakFetchError, DataParseError, CacheError } from "../utils/errors"
 
+interface CelestrakGPJson {
+  OBJECT_NAME: string
+  TLE_LINE1: string
+  TLE_LINE2: string
+  [key: string]: unknown
+}
+
 /**
- * Parse TLE data from Celestrak response
- * TLE format: 3 lines per satellite (name, line1, line2)
+ * Parse JSON GP data from Celestrak response
  */
-function parseTLE(data: string): TLESatellite[] {
-  try {
-    const lines = data.trim().split("\n")
-    const satellites: TLESatellite[] = []
+function parseGPJson(data: CelestrakGPJson[]): TLESatellite[] {
+  const satellites: TLESatellite[] = []
 
-    for (let i = 0; i < lines.length; i += 3) {
-      if (i + 2 >= lines.length) break
-
-      const name = lines[i].trim()
-      const line1 = lines[i + 1].trim()
-      const line2 = lines[i + 2].trim()
-
-      // Validate TLE format
-      if (line1.length < 69 || line2.length < 69) {
-        console.warn(`Invalid TLE format for satellite: ${name}`)
-        continue
-      }
-
-      satellites.push({ name, line1, line2 })
+  for (const entry of data) {
+    if (!entry.OBJECT_NAME || !entry.TLE_LINE1 || !entry.TLE_LINE2) {
+      continue
     }
 
-    if (satellites.length === 0) {
-      throw new DataParseError("No valid satellites found in TLE data")
+    const line1 = entry.TLE_LINE1.trim()
+    const line2 = entry.TLE_LINE2.trim()
+
+    if (line1.length < 69 || line2.length < 69) {
+      console.warn(`Invalid TLE format for satellite: ${entry.OBJECT_NAME}`)
+      continue
     }
 
-    return satellites
-  } catch (error) {
-    if (error instanceof DataParseError) throw error
-    const message = error instanceof Error ? error.message : "Unknown error"
-    throw new DataParseError(`Failed to parse TLE data: ${message}`)
+    satellites.push({
+      name: entry.OBJECT_NAME.trim(),
+      line1,
+      line2,
+    })
   }
+
+  if (satellites.length === 0) {
+    throw new DataParseError("No valid satellites found in GP data")
+  }
+
+  return satellites
 }
 
 /**
@@ -49,11 +52,27 @@ export async function updateSatelliteCache(): Promise<TLESatellite[]> {
     console.log("Fetching satellite data from Celestrak...")
 
     const response = await axios.get(config.celestrak.url, {
-      responseType: "text",
       timeout: config.celestrak.timeout,
+      headers: {
+        "User-Agent": "SatelliteSurveillanceApp/1.0",
+      },
     })
 
-    const satellites = parseTLE(response.data)
+    const responseData = response.data
+
+    // Celestrak returns a string message when data hasn't changed
+    if (typeof responseData === "string" && responseData.includes("has not updated since")) {
+      console.log("Celestrak data not updated since last fetch, using cache")
+      const cached = await getSatelliteFromCache()
+      if (cached) return cached
+      throw new CelestrakFetchError("No new data from Celestrak and no cached data available")
+    }
+
+    if (!Array.isArray(responseData)) {
+      throw new DataParseError("Unexpected response format from Celestrak")
+    }
+
+    const satellites = parseGPJson(responseData)
     console.log(`Parsed ${satellites.length} satellites`)
 
     // Update cache

@@ -1,9 +1,10 @@
 import { type ReactNode } from "react"
 import type { CSSProperties } from "react"
 import { Sidebar } from "./sidebar"
-import { SatellitePanel } from "./panels"
+import { SatellitePanel, VesselPanel } from "./panels"
 import type { AppMode } from "./modes"
 import type { SatelliteFilter } from "../components/globe/types"
+import type { VesselFilter } from "../vessels/types"
 
 interface UIProviderProps {
   children: ReactNode
@@ -12,12 +13,10 @@ interface UIProviderProps {
   satelliteFilter: SatelliteFilter
   onFilterChange: (filter: SatelliteFilter) => void
   onStopTracking: () => void
+  vesselFilter: VesselFilter
+  onVesselFilterChange: (filter: VesselFilter) => void
 }
 
-/**
- * UI Layout component
- * Renders sidebar and mode-specific panels
- */
 export function UIProvider({
   children,
   activeMode,
@@ -25,6 +24,8 @@ export function UIProvider({
   satelliteFilter,
   onFilterChange,
   onStopTracking,
+  vesselFilter,
+  onVesselFilterChange,
 }: UIProviderProps) {
   return (
     <div style={layoutStyles.container}>
@@ -34,6 +35,12 @@ export function UIProvider({
           currentFilter={satelliteFilter}
           onFilterChange={onFilterChange}
           onStopTracking={onStopTracking}
+        />
+      )}
+      {activeMode === "vessel" && (
+        <VesselPanel
+          currentFilter={vesselFilter}
+          onFilterChange={onVesselFilterChange}
         />
       )}
       <div style={layoutStyles.main}>{children}</div>

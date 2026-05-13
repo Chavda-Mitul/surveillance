@@ -37,3 +37,9 @@ export class CacheError extends AppError {
     super(message, 500, "CACHE_ERROR")
   }
 }
+
+export class AISStreamError extends AppError {
+  constructor(message: string = "AISStream WebSocket error") {
+    super(message, 502, "AISSTREAM_ERROR")
+  }
+}

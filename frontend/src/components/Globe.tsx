@@ -2,10 +2,13 @@ import { useEffect, useRef, useImperativeHandle, forwardRef } from "react"
 import * as Cesium from "cesium"
 import { LayerManager } from "../app/LayerManager"
 import { SatelliteLayer } from "../app/layers/satellite/SatelliteLayer"
+import { VesselLayer } from "../app/layers/vessel/VesselLayer"
 import type { SatelliteFilter } from "./globe/types"
+import type { VesselFilter } from "../vessels/types"
 
 interface GlobeProps {
   filter: SatelliteFilter
+  vesselFilter: VesselFilter
   onFilterChange: (filter: SatelliteFilter) => void
   onStopTracking: () => void
 }
@@ -18,10 +21,11 @@ export interface GlobeRef {
  * Globe component - renders Cesium viewer with layer management
  * Responsible only for Cesium visualization, not UI state
  */
-function GlobeInner({ filter }: GlobeProps, ref: React.Ref<GlobeRef>) {
+function GlobeInner({ filter, vesselFilter }: GlobeProps, ref: React.Ref<GlobeRef>) {
   const viewerRef = useRef<Cesium.Viewer | null>(null)
   const layerManagerRef = useRef<LayerManager | null>(null)
   const satelliteLayerRef = useRef<SatelliteLayer | null>(null)
+  const vesselLayerRef = useRef<VesselLayer | null>(null)
 
   // Expose layer manager to parent
   useImperativeHandle(ref, () => ({
@@ -50,10 +54,19 @@ function GlobeInner({ filter }: GlobeProps, ref: React.Ref<GlobeRef>) {
     satelliteLayerRef.current = satelliteLayer
     layerManager.register("satellite", satelliteLayer)
 
-    // Pass data source to layer for entity management
     const dataSource = layerManager.getDataSource("satellite")
     if (dataSource) {
       satelliteLayer.setDataSource(dataSource)
+    }
+
+    // Create and register vessel layer
+    const vesselLayer = new VesselLayer(viewer)
+    vesselLayerRef.current = vesselLayer
+    layerManager.register("vessel", vesselLayer)
+
+    const vesselDataSource = layerManager.getDataSource("vessel")
+    if (vesselDataSource) {
+      vesselLayer.setDataSource(vesselDataSource)
     }
 
     return () => {
@@ -62,13 +75,21 @@ function GlobeInner({ filter }: GlobeProps, ref: React.Ref<GlobeRef>) {
     }
   }, [])
 
-  // Handle filter changes
+  // Handle satellite filter changes
   useEffect(() => {
     const satelliteLayer = satelliteLayerRef.current
     if (satelliteLayer) {
       satelliteLayer.setFilter(filter)
     }
   }, [filter])
+
+  // Handle vessel filter changes
+  useEffect(() => {
+    const vesselLayer = vesselLayerRef.current
+    if (vesselLayer) {
+      vesselLayer.setFilter(vesselFilter)
+    }
+  }, [vesselFilter])
 
   // Handle stop tracking
   useEffect(() => {

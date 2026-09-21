@@ -1,4 +1,4 @@
-import { type ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 import type { CSSProperties } from "react"
 import { Sidebar } from "./sidebar"
 import { SatellitePanel, VesselPanel, FlightPanel, EarthquakePanel, QueryPanel } from "./panels"
@@ -11,7 +11,6 @@ import type { QueryResult } from "../spatial/tools"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 
 const SIDEBAR_WIDTH = 200
-const SIDEBAR_HEIGHT_MOBILE = 60
 
 interface UIProviderProps {
   children: ReactNode
@@ -24,10 +23,8 @@ interface UIProviderProps {
   onVesselFilterChange: (filter: VesselFilter) => void
   flightFilter: FlightFilter
   onFlightFilterChange: (filter: FlightFilter) => void
-  // Earthquake props
   earthquakeFilter: EarthquakeFilter
   onEarthquakeFilterChange: (filter: EarthquakeFilter) => void
-  // Spatial query props
   query: string
   onQueryChange: (query: string) => void
   onQuerySubmit: () => void
@@ -64,41 +61,54 @@ export function UIProvider({
 }: UIProviderProps) {
   const isMobile = useMediaQuery()
   const sidebarWidth = isMobile ? 0 : SIDEBAR_WIDTH
+  const [panelOpen, setPanelOpen] = useState(true)
+
+  // Close panel when mode changes, reopen it
+  const handleModeChange = (mode: AppMode) => {
+    onModeChange(mode)
+    setPanelOpen(true)
+  }
+
+  const closePanel = () => setPanelOpen(false)
 
   return (
     <div style={layoutStyles.container}>
-      <Sidebar activeMode={activeMode} onModeChange={onModeChange} isMobile={isMobile} />
-      {activeMode === "satellite" && (
+      <Sidebar activeMode={activeMode} onModeChange={handleModeChange} isMobile={isMobile} />
+      {panelOpen && activeMode === "satellite" && (
         <SatellitePanel
           currentFilter={satelliteFilter}
           onFilterChange={onFilterChange}
           onStopTracking={onStopTracking}
           isMobile={isMobile}
+          onClose={isMobile ? closePanel : undefined}
         />
       )}
-      {activeMode === "vessel" && (
+      {panelOpen && activeMode === "vessel" && (
         <VesselPanel
           currentFilter={vesselFilter}
           onFilterChange={onVesselFilterChange}
           isMobile={isMobile}
+          onClose={isMobile ? closePanel : undefined}
         />
       )}
-      {activeMode === "flight" && (
+      {panelOpen && activeMode === "flight" && (
         <FlightPanel
           currentFilter={flightFilter}
           onFilterChange={onFlightFilterChange}
           onStopTracking={onStopTracking}
           isMobile={isMobile}
+          onClose={isMobile ? closePanel : undefined}
         />
       )}
-      {activeMode === "earthquake" && (
+      {panelOpen && activeMode === "earthquake" && (
         <EarthquakePanel
           currentFilter={earthquakeFilter}
           onFilterChange={onEarthquakeFilterChange}
           isMobile={isMobile}
+          onClose={isMobile ? closePanel : undefined}
         />
       )}
-      {activeMode === "query" && (
+      {panelOpen && activeMode === "query" && (
         <QueryPanel
           query={query}
           onQueryChange={onQueryChange}
@@ -116,7 +126,7 @@ export function UIProvider({
         ...layoutStyles.main,
         marginLeft: sidebarWidth,
         width: `calc(100vw - ${sidebarWidth}px)`,
-        height: isMobile ? `calc(100vh - ${SIDEBAR_HEIGHT_MOBILE}px)` : "100vh",
+        height: "100vh",
       }}>{children}</div>
     </div>
   )

@@ -6,9 +6,11 @@ import flightRoutes from "./routes/flight"
 import queryRoutes from "./routes/query"
 import satelliteRoutes from "./routes/satellite"
 import vesselRoutes from "./routes/vessel"
+import earthquakeRoutes from "./routes/earthquake"
 import { connectRedis, disconnectRedis } from "./lib/redis"
 import { startSatelliteJob } from "./job/satelliteJob"
 import { startFlightJob } from "./job/flightJob"
+import { startEarthquakeJob } from "./job/earthquakeJob"
 import { startVesselService, stopVesselService } from "./services/vesselService"
 import { startVesselAPIService, stopVesselAPIService } from "./services/vesselApiService"
 import { config } from "./config"
@@ -36,6 +38,7 @@ fastify.register(flightRoutes, { prefix: "/api" })
 fastify.register(queryRoutes, { prefix: "/api" })
 fastify.register(satelliteRoutes, { prefix: "/api" })
 fastify.register(vesselRoutes, { prefix: "/api" })
+fastify.register(earthquakeRoutes, { prefix: "/api" })
 
 /**
  * Health check endpoint
@@ -58,6 +61,7 @@ async function start(): Promise<void> {
     // Start background jobs
     startSatelliteJob()
     startFlightJob()
+    startEarthquakeJob()
     // Start VesselAPI polling (primary vessel data source)
     startVesselAPIService()
 

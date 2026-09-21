@@ -1,11 +1,12 @@
 import { type ReactNode } from "react"
 import type { CSSProperties } from "react"
 import { Sidebar } from "./sidebar"
-import { SatellitePanel, VesselPanel, FlightPanel, QueryPanel } from "./panels"
+import { SatellitePanel, VesselPanel, FlightPanel, EarthquakePanel, QueryPanel } from "./panels"
 import type { AppMode } from "./modes"
 import type { SatelliteFilter } from "../components/globe/types"
 import type { VesselFilter } from "../vessels/types"
 import type { FlightFilter } from "../flights/types"
+import type { EarthquakeFilter } from "../app/layers/earthquake/earthquakeTypes"
 import type { QueryResult } from "../spatial/tools"
 
 interface UIProviderProps {
@@ -19,6 +20,9 @@ interface UIProviderProps {
   onVesselFilterChange: (filter: VesselFilter) => void
   flightFilter: FlightFilter
   onFlightFilterChange: (filter: FlightFilter) => void
+  // Earthquake props
+  earthquakeFilter: EarthquakeFilter
+  onEarthquakeFilterChange: (filter: EarthquakeFilter) => void
   // Spatial query props
   query: string
   onQueryChange: (query: string) => void
@@ -42,6 +46,8 @@ export function UIProvider({
   onVesselFilterChange,
   flightFilter,
   onFlightFilterChange,
+  earthquakeFilter,
+  onEarthquakeFilterChange,
   query,
   onQueryChange,
   onQuerySubmit,
@@ -73,6 +79,12 @@ export function UIProvider({
           currentFilter={flightFilter}
           onFilterChange={onFlightFilterChange}
           onStopTracking={onStopTracking}
+        />
+      )}
+      {activeMode === "earthquake" && (
+        <EarthquakePanel
+          currentFilter={earthquakeFilter}
+          onFilterChange={onEarthquakeFilterChange}
         />
       )}
       {activeMode === "query" && (

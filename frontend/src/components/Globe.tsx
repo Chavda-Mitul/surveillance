@@ -4,14 +4,17 @@ import { LayerManager } from "../app/LayerManager"
 import { SatelliteLayer } from "../app/layers/satellite/SatelliteLayer"
 import { VesselLayer } from "../app/layers/vessel/VesselLayer"
 import { FlightLayer } from "../app/layers/flight/FlightLayer"
+import { EarthquakeLayer } from "../app/layers/earthquake/EarthquakeLayer"
 import type { SatelliteFilter } from "./globe/types"
 import type { VesselFilter } from "../vessels/types"
 import type { FlightFilter } from "../flights/types"
+import type { EarthquakeFilter } from "../app/layers/earthquake/earthquakeTypes"
 
 interface GlobeProps {
   filter: SatelliteFilter
   vesselFilter: VesselFilter
   flightFilter: FlightFilter
+  earthquakeFilter: EarthquakeFilter
   onFilterChange: (filter: SatelliteFilter) => void
   onStopTracking: () => void
 }
@@ -37,7 +40,7 @@ export interface GlobeRef {
  * Responsible only for Cesium visualization, not UI state
  */
 function GlobeInner(
-  { filter, vesselFilter, flightFilter }: GlobeProps,
+  { filter, vesselFilter, flightFilter, earthquakeFilter }: GlobeProps,
   ref: React.Ref<GlobeRef>
 ) {
   const viewerRef = useRef<Cesium.Viewer | null>(null)
@@ -45,6 +48,7 @@ function GlobeInner(
   const satelliteLayerRef = useRef<SatelliteLayer | null>(null)
   const vesselLayerRef = useRef<VesselLayer | null>(null)
   const flightLayerRef = useRef<FlightLayer | null>(null)
+  const earthquakeLayerRef = useRef<EarthquakeLayer | null>(null)
 
   // Expose layer manager + spatial query methods to parent
   useImperativeHandle(ref, () => ({
@@ -238,6 +242,16 @@ function GlobeInner(
       flightLayer.setDataSource(flightDataSource)
     }
 
+    // Create and register earthquake layer
+    const earthquakeLayer = new EarthquakeLayer(viewer)
+    earthquakeLayerRef.current = earthquakeLayer
+    layerManager.register("earthquake", earthquakeLayer)
+
+    const earthquakeDataSource = layerManager.getDataSource("earthquake")
+    if (earthquakeDataSource) {
+      earthquakeLayer.setDataSource(earthquakeDataSource)
+    }
+
     return () => {
       layerManager.dispose()
       viewer.destroy()
@@ -258,6 +272,11 @@ function GlobeInner(
   useEffect(() => {
     flightLayerRef.current?.setFilter(flightFilter)
   }, [flightFilter])
+
+  // Handle earthquake filter changes
+  useEffect(() => {
+    earthquakeLayerRef.current?.setFilter(earthquakeFilter)
+  }, [earthquakeFilter])
 
   // Handle stop tracking
   useEffect(() => {

@@ -63,7 +63,7 @@ export const config = {
     url: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
     timeout: 15000,
     cacheKey: "earthquakes:all_day",
-    cacheTTL: 120, // 2 minutes
+    cacheTTL: 600, // 10 minutes — USGS feed updates every 2-5 min, no need to re-fetch every time
   },
   opensky: {
     clientId: process.env.OPENSKY_CLIENT_ID || "",

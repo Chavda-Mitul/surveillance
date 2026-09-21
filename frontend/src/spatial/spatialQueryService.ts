@@ -1,7 +1,7 @@
 import axios from "axios"
 import type { QueryResult } from "./tools"
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3000"
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ""
 
 /**
  * Send a natural language query to the backend LLM proxy

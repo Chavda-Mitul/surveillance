@@ -2,7 +2,7 @@
  * Application mode types
  * Each mode represents a different visualization layer
  */
-export type AppMode = "satellite" | "vessel" | "flight" | "cctv" | "military" | "traffic" | "query"
+export type AppMode = "satellite" | "vessel" | "flight" | "cctv" | "military" | "traffic" | "earthquake" | "query"
 
 export interface ModeConfig {
   id: AppMode
@@ -57,6 +57,12 @@ export const APP_MODES: ModeConfig[] = [
   //   icon: "🚗",
   //   description: "View traffic data",
   // },
+  {
+    id: "earthquake",
+    label: "Hazards",
+    icon: "🌋",
+    description: "View real-time earthquake events",
+  },
   {
     id: "query",
     label: "God's Eye",

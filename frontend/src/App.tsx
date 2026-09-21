@@ -5,6 +5,7 @@ import Globe, { type GlobeRef } from "./components/Globe"
 import { useSatellites } from "./satellites/useSatellites"
 import { useVessels } from "./vessels/useVessels"
 import { useFlights } from "./flights/useFlights"
+import { useEarthquakes } from "./earthquakes/useEarthquakes"
 import { useSpatialQuery } from "./spatial/useSpatialQuery"
 import type { AppMode } from "./ui/modes"
 import type { SatelliteFilter } from "./components/globe/types"
@@ -12,14 +13,17 @@ import type { VesselFilter, Vessel } from "./vessels/types"
 import type { FlightFilter, Flight } from "./flights/types"
 import type { SatelliteData } from "./app/layers/satellite/satelliteTypes"
 import { hasLoadData, hasStopTracking } from "./app/layers/satellite/types.guard"
+import type { EarthquakeFilter, EarthquakeEvent } from "./app/layers/earthquake/earthquakeTypes"
 import type { SpatialAction } from "./spatial/tools"
 import { FLIGHT_INFO_EVENT } from "./app/layers/flight/FlightLayer"
 import { FlightInfoPanel } from "./ui/FlightInfoPanel"
 import { VESSEL_INFO_EVENT } from "./app/layers/vessel/VesselLayer"
 import { VesselInfoPanel } from "./ui/VesselInfoPanel"
 
+import { EarthquakeInfoPanel } from "./ui/EarthquakeInfoPanel"
+import { EARTHQUAKE_INFO_EVENT } from "./app/layers/earthquake/EarthquakeLayer"
+
 /**
- * Main application component
  * Manages top-level state and coordinates between UI and visualization layers
  */
 function App() {
@@ -27,6 +31,7 @@ function App() {
   const [satelliteFilter, setSatelliteFilter] = useState<SatelliteFilter>("gps")
   const [vesselFilter, setVesselFilter] = useState<VesselFilter>("all")
   const [flightFilter, setFlightFilter] = useState<FlightFilter>("all")
+  const [earthquakeFilter, setEarthquakeFilter] = useState<EarthquakeFilter>("all")
   const globeRef = useRef<GlobeRef>(null)
 
   const { data: satellites } = useSatellites(
@@ -38,12 +43,18 @@ function App() {
   const { data: flights } = useFlights(
     activeMode === "flight" || activeMode === "query"
   )
+  const { data: earthquakes } = useEarthquakes(
+    activeMode === "earthquake"
+  )
 
   /** Selected flight for info popup */
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null)
 
   /** Selected vessel for info popup */
   const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null)
+
+  /** Selected earthquake for info popup */
+  const [selectedEarthquake, setSelectedEarthquake] = useState<EarthquakeEvent | null>(null)
 
   /** Listen for flight info requests from the Cesium layer */
   useEffect(() => {
@@ -65,10 +76,22 @@ function App() {
     return () => window.removeEventListener(VESSEL_INFO_EVENT, handler)
   }, [])
 
+  /** Listen for earthquake info requests from the Cesium layer */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as EarthquakeEvent
+      setSelectedEarthquake(detail)
+    }
+    window.addEventListener(EARTHQUAKE_INFO_EVENT, handler)
+    return () => window.removeEventListener(EARTHQUAKE_INFO_EVENT, handler)
+  }, [])
+
   /** Track whether flights have been initially loaded */
   const flightsLoadedRef = useRef(false)
   /** Track whether vessels have been initially loaded */
   const vesselsLoadedRef = useRef(false)
+  /** Track whether earthquakes have been initially loaded */
+  const earthquakesLoadedRef = useRef(false)
 
   /**
    * Handle spatial query actions from the LLM
@@ -243,7 +266,21 @@ function App() {
   }, [activeMode, flights])
 
   /**
-   * Handle mode switching
+   * Load earthquake data (always reload from fresh API data)
+   */
+  useEffect(() => {
+    if (activeMode !== "earthquake" || !earthquakes || !globeRef.current) return
+
+    const layerManager = globeRef.current.layerManager
+    layerManager.enable("earthquake")
+
+    const earthquakeLayer = layerManager.getLayer("earthquake")
+    if (earthquakeLayer && hasLoadData(earthquakeLayer)) {
+      earthquakeLayer.loadData(earthquakes)
+    }
+  }, [activeMode, earthquakes])
+
+  /**
    */
   const handleModeChange = useCallback((mode: AppMode) => {
     setActiveMode(mode)
@@ -264,12 +301,18 @@ function App() {
       layerManager.enable("flight")
       layerManager.disable("satellite")
       layerManager.disable("vessel")
+    } else if (mode === "earthquake") {
+      layerManager.enable("earthquake")
+      layerManager.disable("satellite")
+      layerManager.disable("vessel")
+      layerManager.disable("flight")
     } else if (mode === "query") {
       // In query mode, keep current layer enabled
     } else {
       layerManager.disable("satellite")
       layerManager.disable("vessel")
       layerManager.disable("flight")
+      layerManager.disable("earthquake")
     }
   }, [])
 
@@ -319,6 +362,8 @@ function App() {
       onVesselFilterChange={setVesselFilter}
       flightFilter={flightFilter}
       onFlightFilterChange={setFlightFilter}
+      earthquakeFilter={earthquakeFilter}
+      onEarthquakeFilterChange={setEarthquakeFilter}
       // Spatial query props
       query={spatialQuery.query}
       onQueryChange={spatialQuery.setQuery}
@@ -335,6 +380,7 @@ function App() {
         filter={satelliteFilter}
         vesselFilter={vesselFilter}
         flightFilter={flightFilter}
+        earthquakeFilter={earthquakeFilter}
         onFilterChange={setSatelliteFilter}
         onStopTracking={handleStopTracking}
       />
@@ -353,6 +399,14 @@ function App() {
           onClose={() => {
             setSelectedVessel(null)
             handleStopTracking()
+          }}
+        />
+      )}
+      {selectedEarthquake && (
+        <EarthquakeInfoPanel
+          event={selectedEarthquake}
+          onClose={() => {
+            setSelectedEarthquake(null)
           }}
         />
       )}

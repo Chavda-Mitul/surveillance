@@ -44,6 +44,12 @@ export class VesselAPIError extends AppError {
   }
 }
 
+export class USGSFetchError extends AppError {
+  constructor(message: string = "Failed to fetch earthquake data from USGS") {
+    super(message, 502, "USGS_FETCH_ERROR")
+  }
+}
+
 export class AISStreamError extends AppError {
   constructor(message: string = "AISStream WebSocket error") {
     super(message, 502, "AISSTREAM_ERROR")

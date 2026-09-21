@@ -1,4 +1,5 @@
 export { SatellitePanel } from "./SatellitePanel"
 export { VesselPanel } from "./VesselPanel"
 export { FlightPanel } from "./FlightPanel"
+export { EarthquakePanel } from "./EarthquakePanel"
 export { QueryPanel } from "./QueryPanel"

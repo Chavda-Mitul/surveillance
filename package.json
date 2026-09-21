@@ -1,5 +1,26 @@
 {
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && npm start"
+  },
   "dependencies": {
-    "@fastify/cors": "^11.2.0"
+    "@fastify/cors": "^11.2.0",
+    "axios": "^1.13.6",
+    "dotenv": "^18.0.1",
+    "fastify": "^5.8.1",
+    "redis": "^5.11.0",
+    "satellite.js": "^6.0.2",
+    "node-cron": "^4.2.1",
+    "ws": "^8.20.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "concurrently": "^9.0.0",
+    "typescript": "^5.9.3"
   }
 }

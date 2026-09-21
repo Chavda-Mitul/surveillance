@@ -69,3 +69,25 @@ export async function disconnectRedis(): Promise<void> {
 export function isRedisConnected(): boolean {
   return redis?.isReady ?? false
 }
+
+/**
+ * Get Redis client, reconnecting if the connection was dropped.
+ * Useful in serverless environments (Vercel) where the same module
+ * is reused but the socket may have been closed between invocations.
+ */
+export async function ensureRedis(): Promise<RedisClientType> {
+  if (redis && redis.isReady) return redis
+  if (redis && !redis.isReady) {
+    // Previous connection was dropped — reconnect
+    try {
+      await redis.connect()
+      console.log("Redis reconnected")
+      return redis
+    } catch {
+      redis = null
+    }
+  }
+  // No client or reconnect failed — connect fresh
+  await connectRedis()
+  return redis!
+}

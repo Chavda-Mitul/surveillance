@@ -1,7 +1,7 @@
 import axios from "axios"
 import type { Flight } from "./types"
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3000"
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || ""
 
 /**
  * Fetch flights from the backend (which proxies OpenSky)

@@ -12,6 +12,7 @@ interface SatellitePanelProps {
   currentFilter: SatelliteFilter
   onFilterChange: (filter: SatelliteFilter) => void
   onStopTracking: () => void
+  isMobile?: boolean
 }
 
 /**
@@ -23,6 +24,7 @@ export function SatellitePanel({
   currentFilter,
   onFilterChange,
   onStopTracking,
+  isMobile,
 }: SatellitePanelProps) {
   const filterOptions: DropdownOption<SatelliteFilter>[] = SATELLITE_FILTERS.map((f) => ({
     value: f,
@@ -30,7 +32,7 @@ export function SatellitePanel({
   }))
 
   return (
-    <div style={panelStyles.container}>
+    <div style={isMobile ? mobileStyles.container : panelStyles.container}>
       <div style={panelStyles.header}>
         <h2 style={panelStyles.title}>Satellite Filters</h2>
       </div>
@@ -54,7 +56,7 @@ const panelStyles: Record<string, CSSProperties> = {
   container: {
     position: "absolute",
     top: 10,
-    left: 220, // Sidebar width + margin
+    left: 220,
     zIndex: 1000,
     backgroundColor: "rgba(17, 24, 39, 0.95)",
     borderRadius: 8,
@@ -94,5 +96,19 @@ const panelStyles: Record<string, CSSProperties> = {
     fontSize: 14,
     fontWeight: 500,
     transition: "background-color 0.2s ease",
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    right: 8,
+    zIndex: 1000,
+    backgroundColor: "rgba(17, 24, 39, 0.95)",
+    borderRadius: 8,
+    border: "1px solid #374151",
+    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
   },
 }

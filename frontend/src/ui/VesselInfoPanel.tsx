@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react"
 import type { Vessel } from "../vessels/types"
 import { classifyVessel } from "../app/layers/vessel/vesselTypes"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 
 interface VesselInfoPanelProps {
   vessel: Vessel
@@ -11,6 +12,7 @@ interface VesselInfoPanelProps {
  * Floating info panel shown when a vessel is clicked on the globe
  */
 export function VesselInfoPanel({ vessel, onClose }: VesselInfoPanelProps) {
+  const isMobile = useMediaQuery()
   const speedKnots = (vessel.speed * 1.94384).toFixed(1)
   const speedKmh = (vessel.speed * 1.852).toFixed(0)
   const vesselCategory = classifyVessel(vessel.vesselType)
@@ -23,9 +25,11 @@ export function VesselInfoPanel({ vessel, onClose }: VesselInfoPanelProps) {
     other: "Other",
   }
 
+  const styles = isMobile ? mobileStyles : panelStyles
+
   return (
     <div style={panelStyles.overlay} onClick={onClose}>
-      <div style={panelStyles.container} onClick={(e) => e.stopPropagation()}>
+      <div style={styles.container} onClick={(e) => e.stopPropagation()}>
         <div style={panelStyles.header}>
           <h3 style={panelStyles.name}>
             {vessel.name || "Unknown Vessel"}
@@ -137,5 +141,21 @@ const panelStyles: Record<string, CSSProperties> = {
     fontSize: 13,
     fontWeight: 400,
     fontFamily: "monospace",
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    position: "absolute",
+    top: "50%",
+    left: 8,
+    right: 8,
+    maxHeight: "70vh",
+    transform: "translateY(-50%)",
+    backgroundColor: "rgba(17, 24, 39, 0.97)",
+    borderRadius: 10,
+    border: "1px solid #4b5563",
+    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+    overflow: "hidden",
   },
 }

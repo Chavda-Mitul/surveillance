@@ -6,13 +6,15 @@ import { FLIGHT_FILTERS } from "../../app/layers/flight/constants"
 interface FlightPanelProps {
   currentFilter: FlightFilter
   onFilterChange: (filter: FlightFilter) => void
+  onStopTracking?: () => void
+  isMobile?: boolean
 }
 
-export function FlightPanel({ currentFilter, onFilterChange }: FlightPanelProps) {
+export function FlightPanel({ currentFilter, onFilterChange, isMobile }: FlightPanelProps) {
   const filterOptions = FLIGHT_FILTERS.map((f) => ({ value: f, label: f }))
 
   return (
-    <div style={panelStyles.container}>
+    <div style={isMobile ? mobileStyles.container : panelStyles.container}>
       <div style={panelStyles.header}>
         <h2 style={panelStyles.title}>Flight Filters</h2>
       </div>
@@ -115,5 +117,19 @@ const panelStyles: Record<string, CSSProperties> = {
     fontSize: 14,
     fontWeight: 500,
     transition: "background-color 0.2s ease",
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    right: 8,
+    zIndex: 1000,
+    backgroundColor: "rgba(17, 24, 39, 0.95)",
+    borderRadius: 8,
+    border: "1px solid #374151",
+    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
   },
 }

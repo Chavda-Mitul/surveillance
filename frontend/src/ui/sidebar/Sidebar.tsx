@@ -5,13 +5,32 @@ import { APP_MODES, type AppMode } from "../modes"
 interface SidebarProps {
   activeMode: AppMode
   onModeChange: (mode: AppMode) => void
+  isMobile: boolean
 }
 
 /**
- * Left sidebar navigation component
+ * Left sidebar navigation (or bottom nav on mobile)
  * Displays mode buttons for switching between visualization types
  */
-export function Sidebar({ activeMode, onModeChange }: SidebarProps) {
+export function Sidebar({ activeMode, onModeChange, isMobile }: SidebarProps) {
+  if (isMobile) {
+    return (
+      <nav style={mobileStyles.container}>
+        {APP_MODES.map((mode) => (
+          <ModeButton
+            key={mode.id}
+            mode={mode.id}
+            label={mode.label}
+            icon={mode.icon}
+            isActive={activeMode === mode.id}
+            onClick={() => onModeChange(mode.id)}
+            isMobile
+          />
+        ))}
+      </nav>
+    )
+  }
+
   return (
     <aside style={sidebarStyles.container}>
       <div style={sidebarStyles.header}>
@@ -63,5 +82,23 @@ const sidebarStyles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: 4,
     overflowY: "auto" as const,
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    position: "fixed",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: "#111827",
+    borderTop: "1px solid #374151",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-around",
+    zIndex: 1000,
+    padding: "0 4px",
+    gap: 2,
   },
 }

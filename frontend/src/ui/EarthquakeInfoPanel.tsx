@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react"
 import type { EarthquakeEvent } from "../earthquakes/types"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 
 interface EarthquakeInfoPanelProps {
   event: EarthquakeEvent
@@ -10,6 +11,7 @@ interface EarthquakeInfoPanelProps {
  * Info overlay panel for an earthquake event, shown on click.
  */
 export function EarthquakeInfoPanel({ event, onClose }: EarthquakeInfoPanelProps) {
+  const isMobile = useMediaQuery()
   const date = new Date(event.time)
   const formattedDate = date.toLocaleDateString("en-US", {
     weekday: "short",
@@ -29,9 +31,11 @@ export function EarthquakeInfoPanel({ event, onClose }: EarthquakeInfoPanelProps
     event.magnitude >= 3.0 ? "#f97316" :
     "#facc15"
 
+  const styles = isMobile ? mobileStyles : panelStyles
+
   return (
     <div style={panelStyles.overlay}>
-      <div style={panelStyles.container}>
+      <div style={styles.container}>
         <div style={panelStyles.header}>
           <h3 style={panelStyles.title}>
             <span style={{ ...panelStyles.badge, backgroundColor: severityColor }}>
@@ -139,5 +143,16 @@ const panelStyles: Record<string, CSSProperties> = {
     color: "#f9fafb",
     textAlign: "right" as const,
     wordBreak: "break-word" as const,
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    backgroundColor: "rgba(17, 24, 39, 0.95)",
+    border: "1px solid #374151",
+    borderRadius: 8,
+    minWidth: 0,
+    maxWidth: "calc(100vw - 16px)",
+    boxShadow: "0 8px 16px rgba(0,0,0,0.4)",
   },
 }

@@ -11,6 +11,7 @@ interface QueryPanelProps {
   lastResult: QueryResult | null
   onClear: () => void
   onSuggestionClick: (suggestion: string) => void
+  isMobile?: boolean
 }
 
 const SUGGESTIONS = [
@@ -36,6 +37,7 @@ export function QueryPanel({
   lastResult,
   onClear,
   onSuggestionClick,
+  isMobile,
 }: QueryPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [showSuggestions, setShowSuggestions] = useState(true)
@@ -54,11 +56,11 @@ export function QueryPanel({
   }
 
   return (
-    <div style={panelStyles.container}>
-      <div style={panelStyles.header}>
+    <div style={isMobile ? mobileContainer : desktopContainer}>
+      <div style={headerStyle(isMobile)}>
         <div style={panelStyles.headerLeft}>
           <span style={panelStyles.headerIcon}>🎯</span>
-          <h2 style={panelStyles.title}>God's Eye Query</h2>
+          <h2 style={titleStyle(isMobile)}>God's Eye Query</h2>
         </div>
         {(response || error) && (
           <button onClick={onClear} style={panelStyles.clearBtn} title="Clear conversation">
@@ -67,7 +69,7 @@ export function QueryPanel({
         )}
       </div>
 
-      <div style={panelStyles.content}>
+      <div style={contentStyle(isMobile)}>
         {/* Input area */}
         <div style={panelStyles.inputGroup}>
           <input
@@ -147,9 +149,9 @@ export function QueryPanel({
         {isProcessing && (
           <div style={panelStyles.processing}>
             <div style={panelStyles.waveLoader}>
-              <span style={panelStyles.waveDot(0)} />
-              <span style={panelStyles.waveDot(1)} />
-              <span style={panelStyles.waveDot(2)} />
+              <span style={panelStyles.waveDot} />
+              <span style={panelStyles.waveDot} />
+              <span style={panelStyles.waveDot} />
             </div>
             <span style={panelStyles.processingText}>Processing query…</span>
           </div>
@@ -187,30 +189,73 @@ function actionLabel(action: SpatialAction): string {
   }
 }
 
-const panelStyles: Record<string, CSSProperties | ((...args: unknown[]) => CSSProperties)> = {
-  container: {
-    position: "absolute",
-    top: 10,
-    left: 220,
-    zIndex: 1000,
-    backgroundColor: "rgba(17, 24, 39, 0.96)",
-    borderRadius: 8,
-    border: "1px solid #374151",
-    minWidth: 380,
-    maxWidth: 480,
-    maxHeight: "calc(100vh - 60px)",
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-    boxShadow: "0 8px 20px rgba(0, 0, 0, 0.5)",
-  },
-  header: {
-    padding: "12px 16px",
+/* ===== Style helpers ===== */
+
+const desktopContainer: CSSProperties = {
+  position: "absolute",
+  top: 10,
+  left: 220,
+  zIndex: 1000,
+  backgroundColor: "rgba(17, 24, 39, 0.96)",
+  borderRadius: 8,
+  border: "1px solid #374151",
+  minWidth: 380,
+  maxWidth: 480,
+  maxHeight: "calc(100vh - 60px)",
+  overflow: "hidden",
+  display: "flex",
+  flexDirection: "column",
+  boxShadow: "0 8px 20px rgba(0, 0, 0, 0.5)",
+}
+
+const mobileContainer: CSSProperties = {
+  position: "absolute",
+  top: 8,
+  left: 8,
+  right: 8,
+  zIndex: 1000,
+  backgroundColor: "rgba(17, 24, 39, 0.96)",
+  borderRadius: 8,
+  border: "1px solid #374151",
+  maxHeight: "calc(100vh - 76px)",
+  overflow: "hidden",
+  display: "flex",
+  flexDirection: "column",
+  boxShadow: "0 8px 20px rgba(0, 0, 0, 0.5)",
+}
+
+function headerStyle(isMobile?: boolean): CSSProperties {
+  return {
+    padding: isMobile ? "10px 12px" : "12px 16px",
     borderBottom: "1px solid #374151",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-  },
+  }
+}
+
+function titleStyle(isMobile?: boolean): CSSProperties {
+  return {
+    margin: 0,
+    fontSize: isMobile ? 12 : 14,
+    fontWeight: 600,
+    color: "#f9fafb",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.5px",
+  }
+}
+
+function contentStyle(isMobile?: boolean): CSSProperties {
+  return {
+    padding: isMobile ? 10 : 16,
+    display: "flex",
+    flexDirection: "column",
+    gap: isMobile ? 8 : 12,
+    overflowY: "auto" as const,
+  }
+}
+
+const panelStyles: Record<string, CSSProperties> = {
   headerLeft: {
     display: "flex",
     alignItems: "center",
@@ -218,14 +263,6 @@ const panelStyles: Record<string, CSSProperties | ((...args: unknown[]) => CSSPr
   },
   headerIcon: {
     fontSize: 18,
-  },
-  title: {
-    margin: 0,
-    fontSize: 14,
-    fontWeight: 600,
-    color: "#f9fafb",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.5px",
   },
   clearBtn: {
     background: "none",
@@ -236,17 +273,9 @@ const panelStyles: Record<string, CSSProperties | ((...args: unknown[]) => CSSPr
     padding: "2px 6px",
     borderRadius: 4,
   },
-  content: {
-    padding: 16,
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    overflowY: "auto" as const,
-  },
   inputGroup: {
     display: "flex",
     gap: 8,
-    position: "relative" as const,
   },
   input: {
     flex: 1,
@@ -267,7 +296,6 @@ const panelStyles: Record<string, CSSProperties | ((...args: unknown[]) => CSSPr
     fontWeight: 600,
     backgroundColor: "#3b82f6",
     color: "white",
-    transition: "all 0.2s ease",
   },
   submitBtnDisabled: {
     opacity: 0.5,
@@ -300,7 +328,6 @@ const panelStyles: Record<string, CSSProperties | ((...args: unknown[]) => CSSPr
     color: "#9ca3af",
     cursor: "pointer",
     textAlign: "left" as const,
-    transition: "all 0.15s ease",
   },
   actionsIndicator: {
     display: "flex",
@@ -345,17 +372,14 @@ const panelStyles: Record<string, CSSProperties | ((...args: unknown[]) => CSSPr
     gap: 3,
     alignItems: "center",
   },
-  waveDot(index: number): CSSProperties {
-    const animationDelay = `${index * 0.15}s`
-    return {
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      backgroundColor: "#3b82f6",
-      display: "inline-block",
-      animation: `wave 0.9s ${animationDelay} infinite ease-in-out`,
-    }
-  },
+  waveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    backgroundColor: "#3b82f6",
+    display: "inline-block",
+    animation: "wave 0.9s infinite ease-in-out",
+  } as CSSProperties,
   processingText: {
     fontSize: 12,
     color: "#6b7280",

@@ -7,6 +7,7 @@ import { fetchEarthquakes } from "../../earthquakes/fetchEarthquakes"
 interface EarthquakePanelProps {
   currentFilter: EarthquakeFilter
   onFilterChange: (filter: EarthquakeFilter) => void
+  isMobile?: boolean
 }
 
 const FILTER_OPTIONS = [
@@ -16,13 +17,13 @@ const FILTER_OPTIONS = [
   { value: "6.0" as EarthquakeFilter, label: "M6.0+" },
 ]
 
-export function EarthquakePanel({ currentFilter, onFilterChange }: EarthquakePanelProps) {
+export function EarthquakePanel({ currentFilter, onFilterChange, isMobile }: EarthquakePanelProps) {
   // Track the earthquake query status so we can show loading/error feedback
   const isFetching = useIsFetching({ queryKey: ["earthquakes"] }) > 0
   const { error } = useQuery({ queryKey: ["earthquakes"], queryFn: fetchEarthquakes, enabled: false })
 
   return (
-    <div style={panelStyles.container}>
+    <div style={isMobile ? mobileStyles.container : panelStyles.container}>
       <div style={panelStyles.header}>
         <h2 style={panelStyles.title}>
           <span style={panelStyles.icon}>🌋</span> Hazard Filters
@@ -137,5 +138,19 @@ const panelStyles: Record<string, CSSProperties> = {
   },
   ok: {
     color: "#34d399",
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    right: 8,
+    zIndex: 1000,
+    backgroundColor: "rgba(17, 24, 39, 0.95)",
+    borderRadius: 8,
+    border: "1px solid #374151",
+    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
   },
 }

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react"
 import type { Flight } from "../flights/types"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 
 interface FlightInfoPanelProps {
   flight: Flight
@@ -10,13 +11,16 @@ interface FlightInfoPanelProps {
  * Floating info panel shown when a flight is clicked on the globe
  */
 export function FlightInfoPanel({ flight, onClose }: FlightInfoPanelProps) {
+  const isMobile = useMediaQuery()
   const altitudeKm = ((flight.baroAltitude || flight.geoAltitude || 0) / 1000).toFixed(1)
   const speedKnots = (flight.velocity * 1.94384).toFixed(0)
   const speedKmh = (flight.velocity * 3.6).toFixed(0)
 
+  const styles = isMobile ? mobileStyles : panelStyles
+
   return (
     <div style={panelStyles.overlay} onClick={onClose}>
-      <div style={panelStyles.container} onClick={(e) => e.stopPropagation()}>
+      <div style={styles.container} onClick={(e) => e.stopPropagation()}>
         <div style={panelStyles.header}>
           <h3 style={panelStyles.callsign}>
             {flight.callsign || "Unknown"}
@@ -140,5 +144,21 @@ const panelStyles: Record<string, CSSProperties> = {
     fontSize: 13,
     fontWeight: 400,
     fontFamily: "monospace",
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    position: "absolute",
+    top: "50%",
+    left: 8,
+    right: 8,
+    maxHeight: "70vh",
+    transform: "translateY(-50%)",
+    backgroundColor: "rgba(17, 24, 39, 0.97)",
+    borderRadius: 10,
+    border: "1px solid #4b5563",
+    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+    overflow: "hidden",
   },
 }

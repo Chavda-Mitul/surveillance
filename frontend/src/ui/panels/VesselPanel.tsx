@@ -6,13 +6,14 @@ import { VESSEL_FILTERS } from "../../app/layers/vessel/constants"
 interface VesselPanelProps {
   currentFilter: VesselFilter
   onFilterChange: (filter: VesselFilter) => void
+  isMobile?: boolean
 }
 
-export function VesselPanel({ currentFilter, onFilterChange }: VesselPanelProps) {
+export function VesselPanel({ currentFilter, onFilterChange, isMobile }: VesselPanelProps) {
   const filterOptions = VESSEL_FILTERS.map((f) => ({ value: f, label: f }))
 
   return (
-    <div style={panelStyles.container}>
+    <div style={isMobile ? mobileStyles.container : panelStyles.container}>
       <div style={panelStyles.header}>
         <h2 style={panelStyles.title}>Ship Filters</h2>
       </div>
@@ -62,5 +63,19 @@ const panelStyles: Record<string, CSSProperties> = {
   dropdown: {
     display: "flex",
     flexDirection: "column",
+  },
+}
+
+const mobileStyles: Record<string, CSSProperties> = {
+  container: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    right: 8,
+    zIndex: 1000,
+    backgroundColor: "rgba(17, 24, 39, 0.95)",
+    borderRadius: 8,
+    border: "1px solid #374151",
+    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.3)",
   },
 }

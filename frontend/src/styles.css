@@ -10,6 +10,7 @@ body {
   font-family: system-ui, sans-serif;
   background: #0a0a0f;
   color: #e0e0e0;
+  overflow: hidden;
 }
 
 /* God's Eye query panel animations */
@@ -32,5 +33,30 @@ body {
   30% {
     transform: translateY(-6px);
     opacity: 1;
+  }
+}
+
+/* ===== Responsive breakpoints ===== */
+
+/* Tablet & below */
+@media (max-width: 768px) {
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Make dropdowns and selects touch-friendly */
+  select,
+  input,
+  button {
+    font-size: 16px !important; /* prevents iOS zoom on focus */
+  }
+}
+
+/* Small phones */
+@media (max-width: 480px) {
+  select,
+  input,
+  button {
+    font-size: 14px !important;
   }
 }

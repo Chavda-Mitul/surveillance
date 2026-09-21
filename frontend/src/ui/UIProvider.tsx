@@ -8,6 +8,10 @@ import type { VesselFilter } from "../vessels/types"
 import type { FlightFilter } from "../flights/types"
 import type { EarthquakeFilter } from "../app/layers/earthquake/earthquakeTypes"
 import type { QueryResult } from "../spatial/tools"
+import { useMediaQuery } from "../hooks/useMediaQuery"
+
+const SIDEBAR_WIDTH = 200
+const SIDEBAR_HEIGHT_MOBILE = 60
 
 interface UIProviderProps {
   children: ReactNode
@@ -58,20 +62,25 @@ export function UIProvider({
   onQueryClear,
   onQuerySuggestionClick,
 }: UIProviderProps) {
+  const isMobile = useMediaQuery()
+  const sidebarWidth = isMobile ? 0 : SIDEBAR_WIDTH
+
   return (
     <div style={layoutStyles.container}>
-      <Sidebar activeMode={activeMode} onModeChange={onModeChange} />
+      <Sidebar activeMode={activeMode} onModeChange={onModeChange} isMobile={isMobile} />
       {activeMode === "satellite" && (
         <SatellitePanel
           currentFilter={satelliteFilter}
           onFilterChange={onFilterChange}
           onStopTracking={onStopTracking}
+          isMobile={isMobile}
         />
       )}
       {activeMode === "vessel" && (
         <VesselPanel
           currentFilter={vesselFilter}
           onFilterChange={onVesselFilterChange}
+          isMobile={isMobile}
         />
       )}
       {activeMode === "flight" && (
@@ -79,12 +88,14 @@ export function UIProvider({
           currentFilter={flightFilter}
           onFilterChange={onFlightFilterChange}
           onStopTracking={onStopTracking}
+          isMobile={isMobile}
         />
       )}
       {activeMode === "earthquake" && (
         <EarthquakePanel
           currentFilter={earthquakeFilter}
           onFilterChange={onEarthquakeFilterChange}
+          isMobile={isMobile}
         />
       )}
       {activeMode === "query" && (
@@ -98,9 +109,15 @@ export function UIProvider({
           lastResult={queryLastResult}
           onClear={onQueryClear}
           onSuggestionClick={onQuerySuggestionClick}
+          isMobile={isMobile}
         />
       )}
-      <div style={layoutStyles.main}>{children}</div>
+      <div style={{
+        ...layoutStyles.main,
+        marginLeft: sidebarWidth,
+        width: `calc(100vw - ${sidebarWidth}px)`,
+        height: isMobile ? `calc(100vh - ${SIDEBAR_HEIGHT_MOBILE}px)` : "100vh",
+      }}>{children}</div>
     </div>
   )
 }
@@ -113,8 +130,6 @@ const layoutStyles: Record<string, CSSProperties> = {
     overflow: "hidden",
   },
   main: {
-    marginLeft: 200, // Sidebar width
-    width: "calc(100vw - 200px)",
-    height: "100vh",
+    transition: "margin-left 0.3s ease, width 0.3s ease",
   },
 }

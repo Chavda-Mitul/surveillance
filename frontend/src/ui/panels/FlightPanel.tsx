@@ -105,4 +105,15 @@ const panelStyles: Record<string, CSSProperties> = {
     fontSize: 12,
     color: "#d1d5db",
   },
+  stopButton: {
+    padding: "10px 16px",
+    border: "none",
+    borderRadius: 4,
+    cursor: "pointer",
+    backgroundColor: "#ef4444",
+    color: "white",
+    fontSize: 14,
+    fontWeight: 500,
+    transition: "background-color 0.2s ease",
+  },
 }

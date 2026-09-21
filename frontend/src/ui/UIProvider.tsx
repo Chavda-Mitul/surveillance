@@ -72,6 +72,7 @@ export function UIProvider({
         <FlightPanel
           currentFilter={flightFilter}
           onFilterChange={onFlightFilterChange}
+          onStopTracking={onStopTracking}
         />
       )}
       {activeMode === "query" && (

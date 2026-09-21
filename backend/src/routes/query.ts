@@ -470,8 +470,7 @@ async function queryRoutes(fastify: FastifyInstance): Promise<void> {
             args.latitude,
             args.longitude,
             args.radiusKm || 100,
-            args.includeFlights !== false,
-            args.includeVessels !== false
+            args.includeFlights !== false
           );
 
           // Build a summary for the LLM
@@ -484,15 +483,6 @@ async function queryRoutes(fastify: FastifyInstance): Promise<void> {
             }
           } else {
             dataSummary += "\nNo flights found within " + (args.radiusKm || 100) + "km.\n";
-          }
-
-          if (nearbyData.vessels.length > 0) {
-            dataSummary += "\nVessels nearby (" + nearbyData.vessels.length + "):\n";
-            for (const v of nearbyData.vessels) {
-              dataSummary += "- " + v.name + " (" + v.type + "): " + v.distanceKm + "km away, speed " + v.speed + "kts, course " + v.course + " deg\n";
-            }
-          } else {
-            dataSummary += "\nNo vessels found within " + (args.radiusKm || 100) + "km.\n";
           }
 
           // Make second LLM call with tool result injected

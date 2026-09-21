@@ -22,6 +22,7 @@ export interface SatelliteRefs {
   entities: Record<string, Cesium.Entity>
   satrecs: Record<string, ReturnType<typeof createSatrec>>
   orbitPaths: Cesium.Entity[]
+  positionProperties: Record<string, Cesium.SampledPositionProperty>
 }
 
 /**

@@ -8,6 +8,7 @@ import satelliteRoutes from "./routes/satellite"
 import vesselRoutes from "./routes/vessel"
 import { connectRedis, disconnectRedis } from "./lib/redis"
 import { startSatelliteJob } from "./job/satelliteJob"
+import { startFlightJob } from "./job/flightJob"
 import { startVesselService, stopVesselService } from "./services/vesselService"
 import { startVesselAPIService, stopVesselAPIService } from "./services/vesselApiService"
 import { config } from "./config"
@@ -56,6 +57,7 @@ async function start(): Promise<void> {
 
     // Start background jobs
     startSatelliteJob()
+    startFlightJob()
     // Start VesselAPI polling (primary vessel data source)
     startVesselAPIService()
 

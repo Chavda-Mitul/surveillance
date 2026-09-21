@@ -77,6 +77,30 @@ export function isCartesianInView(
 }
 
 /**
+ * Check if a Cartesian3 position is on the visible hemisphere of the globe
+ * (i.e., not hidden behind the globe from the camera's perspective).
+ *
+ * This performs a dot product check: if the entity and camera position vectors
+ * (from earth center) point in roughly opposite directions, the entity is
+ * behind the globe and can be safely hidden.
+ *
+ * @param position - Entity ECEF position
+ * @param cameraPosition - Camera ECEF position
+ * @returns true if the entity is on the visible hemisphere
+ */
+export function isOnVisibleHemisphere(
+  position: Cesium.Cartesian3,
+  cameraPosition: Cesium.Cartesian3
+): boolean {
+  const entityNormal = Cesium.Cartesian3.normalize(position, new Cesium.Cartesian3())
+  const cameraNormal = Cesium.Cartesian3.normalize(cameraPosition, new Cesium.Cartesian3())
+  const dot = Cesium.Cartesian3.dot(entityNormal, cameraNormal)
+  // If dot >= 0, entity is on the same hemisphere as the camera (visible side)
+  // If dot < 0, entity is on the opposite hemisphere (behind the globe)
+  return dot >= 0
+}
+
+/**
  * Get expanded view rectangle with padding (to show entities
  * slightly outside the immediate viewport, useful for smooth panning)
  * @param scene - Cesium scene

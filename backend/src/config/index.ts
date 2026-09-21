@@ -21,7 +21,7 @@ export const config = {
     vesselHash: "vessels",
     vesselStaleTTLSeconds: 1800, // 30 minutes
     flightKey: "flights",
-    flightTTL: 15, // 15 seconds - flight data changes fast
+    flightTTL: 60, // 60 seconds — background cron keeps cache warm
   },
   celestrak: {
     url: "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json",
@@ -59,6 +59,12 @@ export const config = {
     model: process.env.OPENROUTER_MODEL || "qwen/qwen3.7-flash",
     timeout: 30000, // 30 seconds
   },
+  earthquake: {
+    url: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
+    timeout: 15000,
+    cacheKey: "earthquakes:all_day",
+    cacheTTL: 120, // 2 minutes
+  },
   opensky: {
     clientId: process.env.OPENSKY_CLIENT_ID || "",
     clientSecret: process.env.OPENSKY_CLIENT_SECRET || "",
@@ -67,7 +73,9 @@ export const config = {
   },
   jobs: {
     satelliteUpdateCron: "0 */6 * * *", // Every 6 hours
+    flightUpdateCron: "*/30 * * * * *", // Every 30 seconds
     vesselStaleCleanupCron: "*/15 * * * *", // Every 15 minutes
+    earthquakeUpdateIntervalMs: 120_000, // Every 2 minutes
   },
 } as const
 

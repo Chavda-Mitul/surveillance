@@ -290,6 +290,9 @@ function App() {
     if (flightLayer && hasStopTracking(flightLayer)) {
       flightLayer.stopTracking()
     }
+
+    // Zoom out from the current position so the user can navigate to other entities
+    globeRef.current?.zoomOut()
   }, [])
 
   /**
@@ -338,13 +341,19 @@ function App() {
       {selectedFlight && (
         <FlightInfoPanel
           flight={selectedFlight}
-          onClose={() => setSelectedFlight(null)}
+          onClose={() => {
+            setSelectedFlight(null)
+            handleStopTracking()
+          }}
         />
       )}
       {selectedVessel && (
         <VesselInfoPanel
           vessel={selectedVessel}
-          onClose={() => setSelectedVessel(null)}
+          onClose={() => {
+            setSelectedVessel(null)
+            handleStopTracking()
+          }}
         />
       )}
     </UIProvider>

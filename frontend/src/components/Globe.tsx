@@ -28,6 +28,8 @@ export interface GlobeRef {
   trackFlight: (identifier: string) => void
   /** Stop tracking any entity */
   stopTracking: () => void
+  /** Zoom out from current position to a high-level overview */
+  zoomOut: () => void
 }
 
 /**
@@ -128,6 +130,32 @@ function GlobeInner(
       }
       satelliteLayerRef.current?.stopTracking()
       flightLayerRef.current?.stopTracking()
+    },
+
+    /**
+     * Zoom out from the current camera position to a high-level overview
+     * while keeping the same geographic focus area.
+     * Uses the camera's current cartographic position to zoom out in place.
+     */
+    zoomOut() {
+      const viewer = viewerRef.current
+      if (!viewer) return
+
+      const cartographic = viewer.camera.positionCartographic
+      if (!cartographic) return
+
+      const lat = Cesium.Math.toDegrees(cartographic.latitude)
+      const lon = Cesium.Math.toDegrees(cartographic.longitude)
+
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, 20_000_000),
+        orientation: {
+          heading: Cesium.Math.toRadians(0),
+          pitch: Cesium.Math.toRadians(-45),
+          roll: 0,
+        },
+        duration: 2.0,
+      })
     },
   }))
 

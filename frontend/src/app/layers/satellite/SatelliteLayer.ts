@@ -8,14 +8,17 @@ import { SatelliteEntityFactory } from "./entityFactory"
 
 /**
  * Satellite layer implementation
- * Manages satellite data, entities, and orbit paths on a Cesium viewer
+ * Manages satellite data, entities, and orbit paths on a Cesium viewer.
  *
- * SGP4 propagation is offloaded to a Web Worker so CPU-heavy math
- * never blocks the main UI thread or stutters Cesium's render loop.
+ * ALL SGP4 propagation (initial + periodic) runs in a Web Worker so
+ * CPU-heavy math never blocks the main UI thread or stutters Cesium's
+ * render loop.
+ *
+ * Entities are created with an empty SampledPositionProperty. The first
+ * batch of position samples arrives asynchronously from the worker,
+ * typically within one animation frame. Periodic updates follow the
+ * same pattern — fire-and-forget with zero main-thread math.
  */
-
-// Internal flag to check if a worker update is already in flight
-let workerUpdatePending = false
 
 export class SatelliteLayer implements Layer {
   readonly id = "satellite"
@@ -28,11 +31,14 @@ export class SatelliteLayer implements Layer {
     entities: {},
     satrecs: {},
     orbitPaths: [],
+    positionProperties: {},
   }
   private filter: SatelliteFilter = "gps"
   private satelliteData: SatelliteData[] = []
   private dataLoaded = false
   private eventHandlers: SatelliteEventHandlers | null = null
+  /** Ensures only one worker request is in flight at any time */
+  private workerUpdatePending = false
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer
@@ -64,7 +70,9 @@ export class SatelliteLayer implements Layer {
 
     if (!this.dataLoaded) {
       this.dataLoaded = true
-      // Initialize the worker in background — never blocks rendering
+      // Start worker init — the Promise is not awaited because entities
+      // are created immediately (without SGP4 math). The worker's
+      // results arrive asynchronously to fill in positions.
       this.initWorker(data)
     }
 
@@ -89,19 +97,20 @@ export class SatelliteLayer implements Layer {
     try {
       await propagationWorker.initialize(satellites)
     } catch (err) {
-      console.error("[SatelliteLayer] Worker init failed, falling back to main thread:", err)
+      console.error("[SatelliteLayer] Worker init failed:", err)
     }
   }
 
+  /**
+   * Periodic update tick — called by LayerManager every ~15s.
+   * Offloads all SGP4 math to the Web Worker.
+   */
   update(): void {
     if (!this.enabled || !this.dataLoaded) return
+    if (!propagationWorker.isReady()) return
+    if (this.workerUpdatePending) return
 
-    // Use worker for position updates if ready, otherwise fall back to main thread
-    if (propagationWorker.isReady() && !workerUpdatePending) {
-      this.updatePositionsViaWorker()
-    } else if (!propagationWorker.isReady()) {
-      this.updatePositionsMainThread()
-    }
+    this.updatePositionsViaWorker()
   }
 
   isEnabled(): boolean {
@@ -133,8 +142,11 @@ export class SatelliteLayer implements Layer {
   }
 
   /**
-   * Render satellites based on current filter
-   * Individual entity failures are caught so a single bad TLE never crashes the layer
+   * Render satellites based on current filter.
+   *
+   * Entities are created WITHOUT position samples — no SGP4 on the
+   * main thread. After all entities exist, the Web Worker is asked to
+   * compute the initial batch of positions.
    */
   private renderSatellites(): void {
     try {
@@ -148,13 +160,71 @@ export class SatelliteLayer implements Layer {
       filtered.forEach((sat, index) => {
         this.createSatelliteEntity(sat, index)
       })
+
+      // Entities are ready (but invisible — no position samples yet).
+      // Ask the worker to compute the first batch.
+      this.scheduleInitialSamples()
     } catch (err) {
       console.error("[SatelliteLayer] renderSatellites failed:", err)
     }
   }
 
   /**
-   * Create a single satellite entity, wrapped in try-catch
+   * Fire the initial batch of position propagation via the Web Worker.
+   *
+   * If the worker is still loading satrecs, retry once after a brief
+   * delay (200ms covers the common init window). If the worker never
+   * becomes ready, positions will be resolved on the next periodic
+   * update() tick from LayerManager (~15s).
+   */
+  private scheduleInitialSamples(): void {
+    if (propagationWorker.isReady()) {
+      this.fireWorkerBatch()
+      return
+    }
+
+    // Worker still loading satrecs — give it one short retry
+    setTimeout(() => {
+      if (propagationWorker.isReady()) {
+        this.fireWorkerBatch()
+      }
+      // If still not ready, the next update() tick will catch up.
+    }, 200)
+  }
+
+  /**
+   * Send a batch propagation request to the worker and apply the
+   * results to all entities.
+   */
+  private fireWorkerBatch(): void {
+    const timestamps = SatelliteEntityFactory.getSampleTimestamps()
+    const jobs: Array<{ id: string; timestamps: number[] }> = []
+
+    for (const id of Object.keys(this.refs.entities)) {
+      jobs.push({ id, timestamps })
+    }
+
+    if (jobs.length === 0) return
+
+    propagationWorker
+      .propagate(jobs)
+      .then((results) => {
+        SatelliteEntityFactory.applyBatchResults(
+          this.refs.entities,
+          results,
+          timestamps
+        )
+      })
+      .catch((err) => {
+        console.warn("[SatelliteLayer] Worker batch failed:", err)
+      })
+  }
+
+  /**
+   * Create a single satellite entity, wrapped in try-catch.
+   *
+   * The entity is created WITHOUT position samples — the position
+   * property is empty until the Web Worker responds.
    */
   private createSatelliteEntity(sat: SatelliteData, index: number): void {
     try {
@@ -170,6 +240,7 @@ export class SatelliteLayer implements Layer {
       if (result) {
         this.refs.entities[id] = result.entity
         this.refs.satrecs[id] = result.satrec
+        this.refs.positionProperties[id] = result.positionProperty
       }
     } catch (err) {
       console.warn(`[SatelliteLayer] Failed to create entity for ${sat.name}:`, err)
@@ -189,11 +260,11 @@ export class SatelliteLayer implements Layer {
   // ─── Position Updates ───────────────────────────────────────────
 
   /**
-   * Update positions via Web Worker (non-blocking)
-   * Fire-and-forget: results arrive asynchronously and update entities
+   * Update positions via Web Worker (non-blocking).
+   * Fire-and-forget: results arrive asynchronously and update entities.
    */
   private updatePositionsViaWorker(): void {
-    workerUpdatePending = true
+    this.workerUpdatePending = true
 
     const timestamps = SatelliteEntityFactory.getSampleTimestamps()
     const jobs: Array<{ id: string; timestamps: number[] }> = []
@@ -203,7 +274,7 @@ export class SatelliteLayer implements Layer {
     }
 
     if (jobs.length === 0) {
-      workerUpdatePending = false
+      this.workerUpdatePending = false
       return
     }
 
@@ -219,31 +290,12 @@ export class SatelliteLayer implements Layer {
         } catch (err) {
           console.warn("[SatelliteLayer] applyBatchResults threw:", err)
         }
-        workerUpdatePending = false
+        this.workerUpdatePending = false
       })
       .catch((err) => {
         console.warn("[SatelliteLayer] Worker update failed:", err)
-        workerUpdatePending = false
+        this.workerUpdatePending = false
       })
-  }
-
-  /**
-   * Fallback: update positions on the main thread (when worker is unavailable)
-   * Each entity is wrapped so one bad propagation never breaks the batch
-   */
-  private updatePositionsMainThread(): void {
-    Object.keys(this.refs.satrecs).forEach((id) => {
-      try {
-        const satrec = this.refs.satrecs[id]
-        const entity = this.refs.entities[id]
-
-        if (satrec && entity) {
-          SatelliteEntityFactory.updatePositionSamples(entity, satrec)
-        }
-      } catch (err) {
-        console.warn(`[SatelliteLayer] Main-thread update failed for entity ${id}:`, err)
-      }
-    })
   }
 
   // ─── Setup ──────────────────────────────────────────────────────
@@ -271,6 +323,7 @@ export class SatelliteLayer implements Layer {
 
     this.refs.entities = {}
     this.refs.satrecs = {}
+    this.refs.positionProperties = {}
   }
 
   hasLoadData(): boolean {

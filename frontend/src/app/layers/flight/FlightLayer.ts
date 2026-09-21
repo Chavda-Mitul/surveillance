@@ -2,8 +2,8 @@ import * as Cesium from "cesium"
 import type { Layer } from "../../Layer"
 import type { Flight, FlightFilter, FlightRoute } from "./flightTypes"
 import { classifyFlight } from "./flightTypes"
-import { FlightEntityFactory } from "./entityFactory"
-import { FLIGHT_TRAIL_MAX_POSITIONS } from "./constants"
+import { FlightEntityFactory, extrapolatePosition } from "./entityFactory"
+import { FLIGHT_TRAIL_MAX_POSITIONS, FLIGHT_SAMPLE_INTERVAL_SECONDS } from "./constants"
 import {
   FLIGHT_ROUTE_COLOR,
   FLIGHT_ROUTE_WIDTH,
@@ -14,10 +14,6 @@ import {
   FLIGHT_TRAJECTORY_COLOR,
   FLIGHT_TRAJECTORY_WIDTH,
 } from "./constants"
-import {
-  getViewRectangle,
-  isPositionInView,
-} from "../../utils/viewportCulling"
 
 const FLIGHT_INFO_EVENT = "flightInfoRequest"
 
@@ -126,11 +122,42 @@ export class FlightLayer implements Layer {
 
   /**
    * Periodic update: refresh positions and trails in-place.
-   * Called by LayerManager every ~10s.
+   * Called by LayerManager every ~10-15s.
+   * Adds mid-cycle interpolation samples to keep SampledPositionProperty
+   * smoothly animating between 30-second data polls.
    */
   update(): void {
     if (!this.enabled || !this.dataLoaded) return
-    this.extrapolateTrails()
+
+    // Add fresh extrapolation samples to keep interpolation smooth between polls
+    for (const flight of this.flightData) {
+      const data = this.flightEntities[flight.icao24]
+      if (!data || !data.entity?.position) continue
+
+      const posProp = data.entity.position as Cesium.SampledPositionProperty
+      if (!posProp) continue
+
+      const now = Cesium.JulianDate.now()
+
+      // Rotate the sample window forward: add a new sample at the far end
+      const futureSeconds = FLIGHT_SAMPLE_INTERVAL_SECONDS * 3 // ~45s ahead
+      const futureTime = Cesium.JulianDate.addSeconds(
+        now,
+        futureSeconds,
+        new Cesium.JulianDate()
+      )
+
+      // Check if we already have a sample near this time
+      if (!posProp.getValue(futureTime)) {
+        const extrapolated = extrapolatePosition(flight, futureSeconds)
+        const futurePos = Cesium.Cartesian3.fromDegrees(
+          extrapolated.longitude,
+          extrapolated.latitude,
+          extrapolated.altitude
+        )
+        posProp.addSample(futureTime, futurePos)
+      }
+    }
   }
 
   isEnabled(): boolean {
@@ -160,6 +187,9 @@ export class FlightLayer implements Layer {
 
   /**
    * Render flights based on current filter
+   * Note: Viewport culling is handled by LayerManager via entity.show.
+   * This method creates ALL filtered entities (no viewport culling here)
+   * to avoid UI inconsistency where flights disappear after stop tracking.
    */
   private renderFlights(): void {
     this.clearEntities()
@@ -173,14 +203,7 @@ export class FlightLayer implements Layer {
 
     const collection = this.dataSource?.entities ?? this.viewer.entities
 
-    // Viewport culling: only create entities for flights near the camera view
-    const viewRect = getViewRectangle(this.viewer.scene)
-
     filtered.forEach((flight) => {
-      if (viewRect && !isPositionInView(flight.longitude, flight.latitude, viewRect)) {
-        return
-      }
-
       const { entity, trail } = FlightEntityFactory.createEntity(flight, collection)
 
       const pos = Cesium.Cartesian3.fromDegrees(
@@ -199,6 +222,8 @@ export class FlightLayer implements Layer {
 
   /**
    * Refresh existing entities with new flight data (in-place).
+   * Note: Viewport culling for new entities is handled by LayerManager via entity.show.
+   * All flight entities are created here (no viewport culling) to avoid UI inconsistency.
    */
   refreshPositions(flights: Flight[]): void {
     if (!this.enabled || !this.dataLoaded) return
@@ -206,8 +231,6 @@ export class FlightLayer implements Layer {
     this.flightData = flights
 
     const collection = this.dataSource?.entities ?? this.viewer.entities
-
-    const viewRect = getViewRectangle(this.viewer.scene)
 
     for (const flight of flights) {
       const existing = this.flightEntities[flight.icao24]
@@ -236,10 +259,6 @@ export class FlightLayer implements Layer {
           this.updateRoutePath(flight)
         }
       } else if (this.filter === "all" || classifyFlight(flight.callsign) === this.filter) {
-        if (viewRect && !isPositionInView(flight.longitude, flight.latitude, viewRect)) {
-          continue
-        }
-
         const { entity, trail } = FlightEntityFactory.createEntity(flight, collection)
         const pos = Cesium.Cartesian3.fromDegrees(
           flight.longitude,
@@ -264,13 +283,6 @@ export class FlightLayer implements Layer {
         delete this.flightEntities[icao24]
       }
     }
-  }
-
-  /**
-   * Extrapolate trails slightly between poll intervals
-   */
-  private extrapolateTrails(): void {
-    // No-op: real positions come via refreshPositions
   }
 
   // ─── Click and Double-Click Handlers ──────────────────────────

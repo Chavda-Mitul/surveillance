@@ -1,6 +1,6 @@
 import * as Cesium from "cesium"
 import type { SatelliteData } from "./satelliteTypes"
-import { createSatrec, getPositionAtTime, classifySatellite } from "../../../satellites/orbit"
+import { createSatrec, classifySatellite } from "../../../satellites/orbit"
 import type { PositionResult } from "../../../satellites/workerPool"
 import {
   SCALE_BY_DISTANCE,
@@ -20,7 +20,11 @@ import {
 
 /**
  * Factory for creating satellite entities
- * Handles entity configuration and position sampling
+ * Handles entity configuration and deferred position sampling.
+ *
+ * SGP4 propagation runs entirely in the Web Worker — no main-thread math.
+ * Entities are created with an empty SampledPositionProperty; the worker
+ * populates the samples asynchronously so the first frame is never blocked.
  */
 
 export interface SatelliteEntityConfig {
@@ -32,13 +36,18 @@ export interface SatelliteEntityConfig {
 export interface CreatedEntity {
   entity: Cesium.Entity
   satrec: any
+  positionProperty: Cesium.SampledPositionProperty
 }
 
 export class SatelliteEntityFactory {
   /**
-   * Create a satellite entity with position samples
-   * Initial samples are computed synchronously (fast for first render).
-   * Subsequent updates go through the Web Worker.
+   * Create a satellite entity WITHOUT position samples.
+   *
+   * The caller is responsible for populating the SampledPositionProperty
+   * via the Web Worker (see applyBatchResults).
+   *
+   * Only satrec creation and string-based classification happen here —
+   * both are cheap and never block the render loop.
    */
   static createEntity(config: SatelliteEntityConfig): CreatedEntity | null {
     const { id, satelliteData, entityCollection } = config
@@ -55,10 +64,15 @@ export class SatelliteEntityFactory {
     const type = classifySatellite(satelliteData.name)
     const isISS = type === "iss"
 
-    // Create position property with initial samples (computed on main thread)
-    const positionProperty = this.createPositionProperty(satrec)
+    // Empty position property — no SGP4 math on the main thread.
+    // Samples are added asynchronously by the Web Worker.
+    const positionProperty = new Cesium.SampledPositionProperty()
+    positionProperty.setInterpolationOptions({
+      interpolationDegree: 2,
+      interpolationAlgorithm: Cesium.LagrangePolynomialApproximation,
+    })
 
-    // Create entity
+    // Create entity (no position samples yet — will appear once worker responds)
     const entity = entityCollection.add({
       id,
       position: positionProperty,
@@ -66,55 +80,13 @@ export class SatelliteEntityFactory {
       ...(isISS ? this.createISSVisualization(satelliteData.name, type) : this.createSatelliteVisualization(satelliteData.name, type))
     })
 
-    return { entity, satrec }
-  }
-
-  /**
-   * Create sampled position property with interpolation
-   * Initial samples computed on main thread for fast first render
-   */
-  private static createPositionProperty(satrec: any): Cesium.SampledPositionProperty {
-    const positionProperty = new Cesium.SampledPositionProperty()
-    positionProperty.setInterpolationOptions({
-      interpolationDegree: 2,
-      interpolationAlgorithm: Cesium.LagrangePolynomialApproximation,
-    })
-
-    // Pre-populate with position samples (synchronous — runs once per satellite)
-    const now = Cesium.JulianDate.now()
-
-    for (let i = -2; i < NUM_POSITION_SAMPLES; i++) {
-      const time = Cesium.JulianDate.addSeconds(
-        now,
-        i * UPDATE_INTERVAL_SECONDS,
-        new Cesium.JulianDate()
-      )
-
-      let position
-      try {
-        position = getPositionAtTime(satrec, time)
-      } catch {
-        // Propagation failure for this sample — skip
-        continue
-      }
-
-      if (position) {
-        const cartesian = Cesium.Cartesian3.fromDegrees(
-          position.lon,
-          position.lat,
-          position.alt
-        )
-        positionProperty.addSample(time, cartesian)
-      }
-    }
-
-    return positionProperty
+    return { entity, satrec, positionProperty }
   }
 
   /**
    * Create availability interval
    */
-  private static createAvailability(): Cesium.TimeIntervalCollection {
+  static createAvailability(): Cesium.TimeIntervalCollection {
     const now = Cesium.JulianDate.now()
 
     return new Cesium.TimeIntervalCollection([
@@ -197,51 +169,6 @@ export class SatelliteEntityFactory {
   }
 
   /**
-   * Update position samples on the main thread (fallback when worker is unavailable)
-   */
-  static updatePositionSamples(
-    entity: Cesium.Entity,
-    satrec: any
-  ): void {
-    if (!entity.position) return
-
-    const positionProperty = entity.position as Cesium.SampledPositionProperty
-    const now = Cesium.JulianDate.now()
-
-    for (let i = 0; i < NUM_POSITION_SAMPLES; i++) {
-      const time = Cesium.JulianDate.addSeconds(
-        now,
-        i * UPDATE_INTERVAL_SECONDS,
-        new Cesium.JulianDate()
-      )
-
-      let position
-      try {
-        position = getPositionAtTime(satrec, time)
-      } catch {
-        // Propagation failure — skip this sample
-        continue
-      }
-
-      if (position) {
-        const cartesian = Cesium.Cartesian3.fromDegrees(
-          position.lon,
-          position.lat,
-          position.alt
-        )
-
-        const existing = positionProperty.getValue(time)
-        if (existing) {
-          positionProperty.removeSample(time)
-        }
-        positionProperty.addSample(time, cartesian)
-      }
-    }
-
-    entity.availability = this.createAvailability()
-  }
-
-  /**
    * Generate the timestamps (as JS ms-since-epoch) for the next batch of samples
    */
   static getSampleTimestamps(): number[] {
@@ -256,7 +183,10 @@ export class SatelliteEntityFactory {
   /**
    * Apply worker-computed positions to a batch of entities
    *
-   * Called asynchronously when the worker returns results.
+   * Called asynchronously when the worker returns results — both for
+   * the initial sample batch (right after entity creation) and for
+   * periodic position updates.
+   *
    * Updates each entity's SampledPositionProperty with new samples.
    */
   static applyBatchResults(

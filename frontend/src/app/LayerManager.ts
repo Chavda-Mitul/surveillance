@@ -3,6 +3,7 @@ import type { Layer, LayerEvent } from "./Layer"
 import {
   getViewRectangle,
   isCartesianInView,
+  isOnVisibleHemisphere,
 } from "./utils/viewportCulling"
 
 /**
@@ -231,6 +232,7 @@ export class LayerManager {
       }
 
       let totalVisibleCount = 0
+      const cameraPos = shouldCull ? this.viewer.camera.positionWC.clone() : undefined
 
       this.layers.forEach((layer) => {
         if (!layer.isEnabled()) return
@@ -260,7 +262,13 @@ export class LayerManager {
                   this.viewer.clock.currentTime
                 )
                 if (currentPos) {
-                  const visible = isCartesianInView(currentPos, viewRect)
+                  // 1) Standard viewport rectangle check
+                  const inView = isCartesianInView(currentPos, viewRect)
+                  // 2) Hemisphere check: hide entities behind the globe
+                  const onVisibleSide = cameraPos
+                    ? isOnVisibleHemisphere(currentPos, cameraPos)
+                    : true
+                  const visible = inView && onVisibleSide
                   entity.show = visible
                   if (visible) totalVisibleCount++
                 } else {

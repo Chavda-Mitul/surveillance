@@ -11,10 +11,15 @@ import {
   FLIGHT_TRAIL_WIDTH,
   FLIGHT_TRAIL_OPACITY,
   FLIGHT_ICON_SVG,
+  FLIGHT_SAMPLE_INTERVAL_SECONDS,
+  FLIGHT_NUM_POSITION_SAMPLES,
 } from "./constants"
 
 /** Billboard pixel size for the icon */
 const FLIGHT_ICON_SIZE = 28
+
+/** Earth radius in meters */
+const EARTH_RADIUS_M = 6_371_000
 
 export interface FlightEntityResult {
   entity: Cesium.Entity
@@ -22,11 +27,135 @@ export interface FlightEntityResult {
 }
 
 /**
+ * Extrapolate a flight's position forward in time using heading, velocity, and vertical rate.
+ * Uses a simple rhumb-line approximation (accurate over short distances < 10 km).
+ */
+export function extrapolatePosition(
+  flight: Flight,
+  deltaSeconds: number
+): { latitude: number; longitude: number; altitude: number } {
+  const speed = flight.velocity // m/s
+  const headingRad = Cesium.Math.toRadians(flight.heading) // 0 = North
+  const distance = speed * deltaSeconds // meters
+
+  const latRad = Cesium.Math.toRadians(flight.latitude)
+  const lonRad = Cesium.Math.toRadians(flight.longitude)
+
+  // Meridional distance (North-South)
+  const dLat = (distance * Math.cos(headingRad)) / EARTH_RADIUS_M // radians
+  // Parallel distance (East-West), adjusted for latitude
+  const dLon = (distance * Math.sin(headingRad)) / (EARTH_RADIUS_M * Math.cos(latRad)) // radians
+
+  const newLat = Cesium.Math.toDegrees(latRad + dLat)
+  const newLon = Cesium.Math.toDegrees(lonRad + dLon)
+  const newAlt = (flight.baroAltitude || flight.geoAltitude || 10000) + flight.verticalRate * deltaSeconds
+
+  return {
+    latitude: newLat,
+    longitude: newLon,
+    altitude: Math.max(newAlt, 0), // Don't go below ground
+  }
+}
+
+/**
+ * Create a SampledPositionProperty with extrapolated samples for smooth animation.
+ * Adds samples at current time + future times based on heading/velocity.
+ */
+function createSampledPosition(flight: Flight): Cesium.SampledPositionProperty {
+  const positionProperty = new Cesium.SampledPositionProperty()
+  positionProperty.setInterpolationOptions({
+    interpolationDegree: 2,
+    interpolationAlgorithm: Cesium.LagrangePolynomialApproximation,
+  })
+
+  const now = Cesium.JulianDate.now()
+
+  // Add current position sample
+  const currentPos = Cesium.Cartesian3.fromDegrees(
+    flight.longitude,
+    flight.latitude,
+    flight.baroAltitude || flight.geoAltitude || 10000
+  )
+  positionProperty.addSample(now, currentPos)
+
+  // Add extrapolated future samples for smooth interpolation between polls
+  for (let i = 1; i <= FLIGHT_NUM_POSITION_SAMPLES; i++) {
+    const futureTime = Cesium.JulianDate.addSeconds(
+      now,
+      i * FLIGHT_SAMPLE_INTERVAL_SECONDS,
+      new Cesium.JulianDate()
+    )
+    const extrapolated = extrapolatePosition(flight, i * FLIGHT_SAMPLE_INTERVAL_SECONDS)
+    const futurePos = Cesium.Cartesian3.fromDegrees(
+      extrapolated.longitude,
+      extrapolated.latitude,
+      extrapolated.altitude
+    )
+    positionProperty.addSample(futureTime, futurePos)
+  }
+
+  return positionProperty
+}
+
+/**
+ * Update an existing SampledPositionProperty with new live data + re-extrapolation.
+ */
+function updateSamplePositions(
+  positionProperty: Cesium.SampledPositionProperty,
+  flight: Flight
+): void {
+  const now = Cesium.JulianDate.now()
+
+  // Replace the "now" sample with the real position
+  const currentPos = Cesium.Cartesian3.fromDegrees(
+    flight.longitude,
+    flight.latitude,
+    flight.baroAltitude || flight.geoAltitude || 10000
+  )
+
+  // Remove old samples at these times (if any) and add fresh ones
+  // First remove current and future samples, then re-add
+  for (let i = 0; i <= FLIGHT_NUM_POSITION_SAMPLES; i++) {
+    const time = Cesium.JulianDate.addSeconds(
+      now,
+      i * FLIGHT_SAMPLE_INTERVAL_SECONDS,
+      new Cesium.JulianDate()
+    )
+    const existing = positionProperty.getValue(time)
+    if (existing) {
+      positionProperty.removeSample(time)
+    }
+  }
+
+  // Add current real position
+  positionProperty.addSample(now, currentPos)
+
+  // Re-extrapolate future positions
+  for (let i = 1; i <= FLIGHT_NUM_POSITION_SAMPLES; i++) {
+    const futureTime = Cesium.JulianDate.addSeconds(
+      now,
+      i * FLIGHT_SAMPLE_INTERVAL_SECONDS,
+      new Cesium.JulianDate()
+    )
+    const extrapolated = extrapolatePosition(flight, i * FLIGHT_SAMPLE_INTERVAL_SECONDS)
+    const futurePos = Cesium.Cartesian3.fromDegrees(
+      extrapolated.longitude,
+      extrapolated.latitude,
+      extrapolated.altitude
+    )
+    positionProperty.addSample(futureTime, futurePos)
+  }
+}
+
+/**
  * Factory for creating and updating Cesium flight entities
+ * Uses SampledPositionProperty with dead-reckoning extrapolation
+ * for smooth movement between 30-second data polls.
  */
 export class FlightEntityFactory {
   /**
-   * Create a Cesium entity for a flight, plus a trailing path polyline
+   * Create a Cesium entity for a flight with SampledPositionProperty for smooth movement,
+   * plus a trailing path polyline.
    */
   static createEntity(
     flight: Flight,
@@ -34,7 +163,11 @@ export class FlightEntityFactory {
   ): FlightEntityResult {
     const type = classifyFlight(flight.callsign)
     const color = FLIGHT_COLORS[type] ?? FLIGHT_COLORS.all
-    const position = Cesium.Cartesian3.fromDegrees(
+
+    // Use SampledPositionProperty with extrapolated samples for smooth animation
+    const positionProperty = createSampledPosition(flight)
+
+    const currentPos = Cesium.Cartesian3.fromDegrees(
       flight.longitude,
       flight.latitude,
       flight.baroAltitude || flight.geoAltitude || 10000
@@ -47,7 +180,18 @@ export class FlightEntityFactory {
     const entity = new Cesium.Entity({
       id: `flight-${flight.icao24}`,
       name: labelText,
-      position: new Cesium.ConstantPositionProperty(position),
+      position: positionProperty,
+      // Availability: span from now through all extrapolated samples
+      availability: new Cesium.TimeIntervalCollection([
+        new Cesium.TimeInterval({
+          start: Cesium.JulianDate.now(),
+          stop: Cesium.JulianDate.addSeconds(
+            Cesium.JulianDate.now(),
+            FLIGHT_NUM_POSITION_SAMPLES * FLIGHT_SAMPLE_INTERVAL_SECONDS,
+            new Cesium.JulianDate()
+          ),
+        }),
+      ]),
       // Use billboard with airplane SVG icon for type-specific visuals
       billboard: new Cesium.BillboardGraphics({
         image: FLIGHT_ICON_SVG,
@@ -90,7 +234,7 @@ export class FlightEntityFactory {
     entityCollection.add(entity)
 
     // Create the trail polyline (starts with just the current position)
-    const trailPositions: Cesium.Cartesian3[] = [position, position]
+    const trailPositions: Cesium.Cartesian3[] = [currentPos, currentPos]
     const trail = new Cesium.Entity({
       id: `flight-trail-${flight.icao24}`,
       polyline: new Cesium.PolylineGraphics({
@@ -115,7 +259,8 @@ export class FlightEntityFactory {
   }
 
   /**
-   * Update an existing flight entity's position, properties, and trail
+   * Update an existing flight entity's position, properties, trail, and
+   * re-extrapolate SampledPositionProperty for smooth animation.
    */
   static updatePosition(
     entity: Cesium.Entity,
@@ -123,16 +268,24 @@ export class FlightEntityFactory {
     trailEntity?: Cesium.Entity,
     positionHistory?: Cesium.Cartesian3[]
   ): void {
-    const position = Cesium.Cartesian3.fromDegrees(
-      flight.longitude,
-      flight.latitude,
-      flight.baroAltitude || flight.geoAltitude || 10000
-    )
-
-    // Update main position
-    const posProp = entity.position as Cesium.ConstantPositionProperty
+    // Update the SampledPositionProperty with new live data + re-extrapolation
+    const posProp = entity.position as Cesium.SampledPositionProperty
     if (posProp) {
-      posProp.setValue(position)
+      updateSamplePositions(posProp, flight)
+    }
+
+    // Update availability
+    if (entity.availability) {
+      entity.availability = new Cesium.TimeIntervalCollection([
+        new Cesium.TimeInterval({
+          start: Cesium.JulianDate.now(),
+          stop: Cesium.JulianDate.addSeconds(
+            Cesium.JulianDate.now(),
+            FLIGHT_NUM_POSITION_SAMPLES * FLIGHT_SAMPLE_INTERVAL_SECONDS,
+            new Cesium.JulianDate()
+          ),
+        }),
+      ])
     }
 
     // Update label text

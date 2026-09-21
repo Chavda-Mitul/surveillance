@@ -85,6 +85,13 @@ export const FLIGHT_PATH_PREVIEW_SECONDS = 120 // Show 2 min ahead
 /** How far ahead (seconds) to extrapolate the flight direction */
 export const FLIGHT_HEADING_PREVIEW_SECONDS = 60
 
+// ─── Smooth position animation ───────────────────────────────────
+
+/** Interval between SampledPositionProperty samples (seconds) */
+export const FLIGHT_SAMPLE_INTERVAL_SECONDS = 15
+/** Number of extrapolated position samples to add ahead of the current time */
+export const FLIGHT_NUM_POSITION_SAMPLES = 4
+
 // ─── Route display constants ────────────────────────────────────
 
 /** Color for the route polyline (origin → destination) */

@@ -44,6 +44,8 @@ interface RawAISMessage {
   }
 }
 
+let subscriptionTimer: NodeJS.Timeout | null = null
+
 function sendSubscription(socket: WebSocket): void {
   const msg = {
     APIKey: config.aisstream.apiKey,
@@ -51,6 +53,15 @@ function sendSubscription(socket: WebSocket): void {
     FilterMessageTypes: ["PositionReport", "ShipStaticData"],
   }
   socket.send(JSON.stringify(msg))
+
+  // If no data received within 8 seconds, assume subscription failed
+  if (subscriptionTimer) clearTimeout(subscriptionTimer)
+  subscriptionTimer = setTimeout(() => {
+    if (ws === socket && socket.readyState === WebSocket.OPEN) {
+      console.warn("aisstream.io: no data received for 8s after subscription, terminating")
+      socket.terminate()
+    }
+  }, 8000)
 }
 
 function handleMessage(raw: string): Vessel | null {
@@ -139,8 +150,8 @@ function connect(): void {
     reconnectDelayMs = 1000
     lastPongMs = Date.now()
 
-    // Small delay to ensure connection is fully established
-    setTimeout(() => sendSubscription(ws!), 100)
+    // Subscribe after a brief delay to ensure connection is fully established
+    setTimeout(() => sendSubscription(ws!), 500)
 
     // Send periodic pings to keep connection alive (every 25 seconds)
     pingInterval = setInterval(() => {
@@ -165,7 +176,11 @@ function connect(): void {
 
   ws.on("message", async (data: WebSocket.RawData) => {
     const raw = data.toString()
-    // Debug: log raw messages (trimmed) — comment out after debugging
+    // Clear subscription timer once we receive any data
+    if (subscriptionTimer) {
+      clearTimeout(subscriptionTimer)
+      subscriptionTimer = null
+    }
     if (raw.startsWith("{")) {
       const vessel = handleMessage(raw)
       if (vessel) await writeVesselToRedis(vessel)
@@ -178,6 +193,10 @@ function connect(): void {
     if (pingInterval) {
       clearInterval(pingInterval)
       pingInterval = null
+    }
+    if (subscriptionTimer) {
+      clearTimeout(subscriptionTimer)
+      subscriptionTimer = null
     }
     const reasonStr = reason?.toString() || "no reason"
     console.log(`aisstream.io WebSocket closed (${code}): ${reasonStr}`)
@@ -207,12 +226,14 @@ function scheduleReconnect(): void {
   if (isShuttingDown || authFailed) return
 
   reconnectDelayMs = Math.min(reconnectDelayMs * 2, config.aisstream.reconnectMaxMs)
-  console.log(`Reconnecting to aisstream.io in ${reconnectDelayMs / 1000}s...`)
+  // Add jitter (±20%) to avoid reconnection storms
+  const jitter = reconnectDelayMs * (0.8 + Math.random() * 0.4)
+  console.log(`Reconnecting to aisstream.io in ${(jitter / 1000).toFixed(1)}s...`)
 
   reconnectTimeout = setTimeout(() => {
     reconnectTimeout = null
     connect()
-  }, reconnectDelayMs)
+  }, jitter)
 }
 
 async function trimStaleVessels(): Promise<void> {
@@ -255,6 +276,11 @@ export function stopVesselService(): void {
   if (pingInterval) {
     clearInterval(pingInterval)
     pingInterval = null
+  }
+
+  if (subscriptionTimer) {
+    clearTimeout(subscriptionTimer)
+    subscriptionTimer = null
   }
 
   if (reconnectTimeout) {

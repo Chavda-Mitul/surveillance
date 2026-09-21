@@ -1,6 +1,7 @@
 import * as Cesium from "cesium"
 import type { SatelliteData } from "./satelliteTypes"
 import { createSatrec, getPositionAtTime, classifySatellite } from "../../../satellites/orbit"
+import type { PositionResult } from "../../../satellites/workerPool"
 import {
   SCALE_BY_DISTANCE,
   LABEL_DISTANCE_CONDITION,
@@ -36,6 +37,8 @@ export interface CreatedEntity {
 export class SatelliteEntityFactory {
   /**
    * Create a satellite entity with position samples
+   * Initial samples are computed synchronously (fast for first render).
+   * Subsequent updates go through the Web Worker.
    */
   static createEntity(config: SatelliteEntityConfig): CreatedEntity | null {
     const { id, satelliteData, entityCollection } = config
@@ -46,7 +49,7 @@ export class SatelliteEntityFactory {
     const type = classifySatellite(satelliteData.name)
     const isISS = type === "iss"
 
-    // Create position property with samples
+    // Create position property with initial samples (computed on main thread)
     const positionProperty = this.createPositionProperty(satrec)
 
     // Create entity
@@ -62,6 +65,7 @@ export class SatelliteEntityFactory {
 
   /**
    * Create sampled position property with interpolation
+   * Initial samples computed on main thread for fast first render
    */
   private static createPositionProperty(satrec: any): Cesium.SampledPositionProperty {
     const positionProperty = new Cesium.SampledPositionProperty()
@@ -70,7 +74,7 @@ export class SatelliteEntityFactory {
       interpolationAlgorithm: Cesium.LagrangePolynomialApproximation,
     })
 
-    // Pre-populate with position samples
+    // Pre-populate with position samples (synchronous — runs once per satellite)
     const now = Cesium.JulianDate.now()
 
     for (let i = -2; i < NUM_POSITION_SAMPLES; i++) {
@@ -176,7 +180,7 @@ export class SatelliteEntityFactory {
   }
 
   /**
-   * Update position samples for an existing entity
+   * Update position samples on the main thread (fallback when worker is unavailable)
    */
   static updatePositionSamples(
     entity: Cesium.Entity,
@@ -187,7 +191,6 @@ export class SatelliteEntityFactory {
     const positionProperty = entity.position as Cesium.SampledPositionProperty
     const now = Cesium.JulianDate.now()
 
-    // Add new position samples
     for (let i = 0; i < NUM_POSITION_SAMPLES; i++) {
       const time = Cesium.JulianDate.addSeconds(
         now,
@@ -203,15 +206,67 @@ export class SatelliteEntityFactory {
           position.alt
         )
 
-        // Only add if sample doesn't exist
-        const existingSample = positionProperty.getValue(time)
-        if (!existingSample) {
-          positionProperty.addSample(time, cartesian)
+        const existing = positionProperty.getValue(time)
+        if (existing) {
+          positionProperty.removeSample(time)
         }
+        positionProperty.addSample(time, cartesian)
       }
     }
 
-    // Update availability
     entity.availability = this.createAvailability()
+  }
+
+  /**
+   * Generate the timestamps (as JS ms-since-epoch) for the next batch of samples
+   */
+  static getSampleTimestamps(): number[] {
+    const now = Date.now()
+    const timestamps: number[] = []
+    for (let i = 0; i < NUM_POSITION_SAMPLES; i++) {
+      timestamps.push(now + i * UPDATE_INTERVAL_SECONDS * 1000)
+    }
+    return timestamps
+  }
+
+  /**
+   * Apply worker-computed positions to a batch of entities
+   *
+   * Called asynchronously when the worker returns results.
+   * Updates each entity's SampledPositionProperty with new samples.
+   */
+  static applyBatchResults(
+    entities: Record<string, Cesium.Entity>,
+    results: Record<string, Array<PositionResult | null>>,
+    timestamps: number[]
+  ): void {
+    for (const [id, positions] of Object.entries(results)) {
+      const entity = entities[id]
+      if (!entity || !entity.position) continue
+
+      const positionProperty = entity.position as Cesium.SampledPositionProperty
+
+      for (let i = 0; i < positions.length; i++) {
+        const pos = positions[i]
+        const ts = timestamps[i]
+        if (!pos) continue
+
+        const time = Cesium.JulianDate.fromDate(new Date(ts))
+        const cartesian = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, pos.alt)
+
+        // Replace existing sample or add new one
+        const existing = positionProperty.getValue(time)
+        if (existing) {
+          // Remove then re-add to update
+          positionProperty.removeSample(time)
+        }
+        positionProperty.addSample(time, cartesian)
+      }
+
+      // Update availability
+      if (entity.availability) {
+        entity.availability = SatelliteEntityFactory.createAvailability()
+      }
+    }
   }
 }

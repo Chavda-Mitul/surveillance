@@ -2,16 +2,19 @@ import * as Cesium from "cesium"
 import type { Flight } from "./flightTypes"
 import { classifyFlight } from "./flightTypes"
 import {
-  FLIGHT_POINT_SIZE,
-  FLIGHT_OUTLINE_WIDTH,
   FLIGHT_LABEL_FONT,
   FLIGHT_LABEL_OFFSET_Y,
   FLIGHT_SCALE_BY_DISTANCE,
   FLIGHT_LABEL_DISTANCE_CONDITION,
+  FLIGHT_BILLBOARD_SCALE_BY_DISTANCE,
   FLIGHT_COLORS,
   FLIGHT_TRAIL_WIDTH,
   FLIGHT_TRAIL_OPACITY,
+  FLIGHT_ICON_SVG,
 } from "./constants"
+
+/** Billboard pixel size for the icon */
+const FLIGHT_ICON_SIZE = 28
 
 export interface FlightEntityResult {
   entity: Cesium.Entity
@@ -45,13 +48,16 @@ export class FlightEntityFactory {
       id: `flight-${flight.icao24}`,
       name: labelText,
       position: new Cesium.ConstantPositionProperty(position),
-      point: new Cesium.PointGraphics({
-        pixelSize: FLIGHT_POINT_SIZE,
+      // Use billboard with airplane SVG icon for type-specific visuals
+      billboard: new Cesium.BillboardGraphics({
+        image: FLIGHT_ICON_SVG,
         color: color,
-        outlineColor: Cesium.Color.WHITE,
-        outlineWidth: FLIGHT_OUTLINE_WIDTH,
-        scaleByDistance: FLIGHT_SCALE_BY_DISTANCE,
+        width: FLIGHT_ICON_SIZE,
+        height: FLIGHT_ICON_SIZE,
+        rotation: Cesium.Math.toRadians(-flight.heading),
+        scaleByDistance: FLIGHT_BILLBOARD_SCALE_BY_DISTANCE,
         distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50_000_000),
+        alignedAxis: Cesium.Cartesian3.UNIT_Z,
       }),
       label: new Cesium.LabelGraphics({
         text: `${labelText}\n${altitudeKm}km ${speedKnots}kt`,
@@ -136,6 +142,12 @@ export class FlightEntityFactory {
     const label = entity.label as Cesium.LabelGraphics
     if (label) {
       label.text = `${labelText}\n${altitudeKm}km ${speedKnots}kt`
+    }
+
+    // Update billboard rotation to match heading
+    const billboard = entity.billboard as Cesium.BillboardGraphics
+    if (billboard) {
+      billboard.rotation = Cesium.Math.toRadians(-flight.heading)
     }
 
     // Update properties

@@ -38,6 +38,26 @@ export interface Flight {
 export type FlightFilter = "all" | "commercial" | "cargo" | "private" | "military"
 
 /**
+ * Route data for a specific flight
+ */
+export interface FlightRoute {
+  icao24: string
+  callsign: string
+  /** Estimated departure airport ICAO code */
+  estDepartureAirport: string | null
+  /** Estimated arrival airport ICAO code */
+  estArrivalAirport: string | null
+  /** Coordinates of departure airport */
+  departureCoords: { latitude: number; longitude: number } | null
+  /** Coordinates of arrival airport */
+  arrivalCoords: { latitude: number; longitude: number } | null
+  /** Full trajectory path (lat/lon/alt/time) */
+  path: Array<{ latitude: number; longitude: number; altitude: number; time: number }>
+  /** Whether any route data was found */
+  hasRoute: boolean
+}
+
+/**
  * Categorize a flight based on callsign patterns
  */
 export function classifyFlight(callsign: string): FlightFilter {

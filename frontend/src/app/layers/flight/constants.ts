@@ -14,10 +14,33 @@ export const FLIGHT_SCALE_BY_DISTANCE = new Cesium.NearFarScalar(
   0.08
 )
 
+/**
+ * Billboard scale-by-distance for airplane icons
+ * Stays visible a bit larger than the point to keep icon readable
+ */
+export const FLIGHT_BILLBOARD_SCALE_BY_DISTANCE = new Cesium.NearFarScalar(
+  1.0e4,  // Near distance (10 km)
+  1.0,    // Full scale at near
+  5.0e7,  // Far distance (50,000 km)
+  0.15    // Small but visible at far
+)
+
 export const FLIGHT_LABEL_DISTANCE_CONDITION = new Cesium.DistanceDisplayCondition(
   0,
   5_000_000
 )
+
+/**
+ * Airplane SVG icon as a data URI
+ * Clean silhouette pointing upward — Cesium tints it via billboard.color
+ */
+export const FLIGHT_ICON_SVG: string = (() => {
+  // Simple airplane silhouette pointing up
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">
+    <path d="M12 1.5 L14.5 9 L21.5 11 L23 13 L21.5 15 L14.5 17 L12 22.5 L9.5 17 L2.5 15 L1 13 L2.5 11 L9.5 9 Z"/>
+  </svg>`
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+})()
 
 /**
  * Colors by flight classification
@@ -61,3 +84,22 @@ export const FLIGHT_TRAIL_OPACITY = 0.9
 export const FLIGHT_PATH_PREVIEW_SECONDS = 120 // Show 2 min ahead
 /** How far ahead (seconds) to extrapolate the flight direction */
 export const FLIGHT_HEADING_PREVIEW_SECONDS = 60
+
+// ─── Route display constants ────────────────────────────────────
+
+/** Color for the route polyline (origin → destination) */
+export const FLIGHT_ROUTE_COLOR = Cesium.Color.fromCssColorString("#f59e0b") // Amber
+/** Width of the route polyline */
+export const FLIGHT_ROUTE_WIDTH = 2.5
+/** Glow power for the route path */
+export const FLIGHT_ROUTE_GLOW_POWER = 0.25
+/** Color for the departure airport marker */
+export const FLIGHT_DEPARTURE_COLOR = Cesium.Color.fromCssColorString("#10b981") // Emerald green
+/** Color for the arrival airport marker */
+export const FLIGHT_ARRIVAL_COLOR = Cesium.Color.fromCssColorString("#ef4444") // Red
+/** Pixel size for airport markers */
+export const FLIGHT_AIRPORT_MARKER_SIZE = 12
+/** Color for the trajectory trail (actual flown path from OpenSky) */
+export const FLIGHT_TRAJECTORY_COLOR = Cesium.Color.fromCssColorString("#8b5cf6") // Purple
+/** Width for the trajectory trail */
+export const FLIGHT_TRAJECTORY_WIDTH = 1.5

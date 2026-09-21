@@ -170,6 +170,10 @@ export class SatelliteEntityFactory {
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: SATELLITE_OUTLINE_WIDTH,
         scaleByDistance: SCALE_BY_DISTANCE,
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(
+          0,
+          50_000_000
+        ),
       },
       label: {
         text: name,

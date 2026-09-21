@@ -33,7 +33,7 @@ function App() {
     activeMode === "satellite" || activeMode === "query"
   )
   const { data: vessels } = useVessels(
-    activeMode === "vessel" || activeMode === "query"
+    activeMode === "vessel"
   )
   const { data: flights } = useFlights(
     activeMode === "flight" || activeMode === "query"
@@ -93,12 +93,6 @@ function App() {
             globe.layerManager.disable("flight")
             setActiveMode("satellite")
             setSatelliteFilter(filter as SatelliteFilter)
-          } else if (layer === "vessel") {
-            globe.layerManager.enable("vessel")
-            globe.layerManager.disable("satellite")
-            globe.layerManager.disable("flight")
-            setActiveMode("vessel")
-            setVesselFilter(filter as VesselFilter)
           } else if (layer === "flight") {
             globe.layerManager.enable("flight")
             globe.layerManager.disable("satellite")
@@ -117,10 +111,6 @@ function App() {
             lm.enable("satellite")
             lm.disable("vessel")
             lm.disable("flight")
-          } else if (mode === "vessel") {
-            lm.enable("vessel")
-            lm.disable("satellite")
-            lm.disable("flight")
           } else if (mode === "flight") {
             lm.enable("flight")
             lm.disable("satellite")
@@ -138,12 +128,6 @@ function App() {
             lm.disable("flight")
             setActiveMode("satellite")
             globe.trackSatellite(identifier)
-          } else if (layer === "vessel") {
-            lm.enable("vessel")
-            lm.disable("satellite")
-            lm.disable("flight")
-            setActiveMode("vessel")
-            globe.trackVessel(identifier)
           } else if (layer === "flight") {
             lm.enable("flight")
             lm.disable("satellite")
@@ -290,7 +274,7 @@ function App() {
   }, [])
 
   /**
-   * Stop tracking current satellite
+   * Stop tracking current satellite or flight
    */
   const handleStopTracking = useCallback(() => {
     if (!globeRef.current) return
@@ -300,6 +284,11 @@ function App() {
 
     if (satelliteLayer && hasStopTracking(satelliteLayer)) {
       satelliteLayer.stopTracking()
+    }
+
+    const flightLayer = layerManager.getLayer("flight")
+    if (flightLayer && hasStopTracking(flightLayer)) {
+      flightLayer.stopTracking()
     }
   }, [])
 

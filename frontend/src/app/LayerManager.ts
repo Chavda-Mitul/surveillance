@@ -1,11 +1,26 @@
 import * as Cesium from "cesium"
 import type { Layer, LayerEvent } from "./Layer"
+import {
+  getViewRectangle,
+  isCartesianInView,
+} from "./utils/viewportCulling"
 
 /**
  * Update interval in milliseconds
- * Updates every 10 seconds to avoid performance issues
+ * Increased to 15 seconds to reduce CPU load
  */
-const UPDATE_INTERVAL_MS = 10000
+const UPDATE_INTERVAL_MS = 15000
+
+/**
+ * Viewport culling check interval (every N updates, re-check visibility)
+ * 3 = every 45 seconds, balances accuracy vs performance
+ */
+const VIEWPORT_CHECK_INTERVAL = 3
+
+/**
+ * Maximum entities to render before forced throttling
+ */
+const MAX_VISIBLE_ENTITIES = 5000
 
 /**
  * Manages multiple layers on a Cesium viewer
@@ -18,6 +33,8 @@ export class LayerManager {
   private dataSources: Map<string, Cesium.CustomDataSource> = new Map()
   private removeTickListener: (() => void) | null = null
   private lastUpdateTime = 0
+  private tickCounter = 0
+  private lastViewRect: Cesium.Rectangle | null = null
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer
@@ -187,7 +204,9 @@ export class LayerManager {
 
   /**
    * Set up Cesium clock tick listener with throttling
-   * Only updates layers every UPDATE_INTERVAL_MS (10 seconds)
+   * Only updates layers every UPDATE_INTERVAL_MS (15 seconds)
+   * Also performs viewport culling every VIEWPORT_CHECK_INTERVAL ticks
+   * to hide entities outside the camera's current view
    */
   private setupTickListener(): void {
     this.removeTickListener = this.viewer.clock.onTick.addEventListener(() => {
@@ -200,12 +219,71 @@ export class LayerManager {
       }
       
       this.lastUpdateTime = now
-      
+      this.tickCounter++
+
+      // Perform viewport culling every few ticks
+      const shouldCull = this.tickCounter % VIEWPORT_CHECK_INTERVAL === 0
+      let viewRect: Cesium.Rectangle | null = null
+
+      if (shouldCull) {
+        viewRect = getViewRectangle(this.viewer.scene)
+        this.lastViewRect = viewRect
+      }
+
+      let totalVisibleCount = 0
+
       this.layers.forEach((layer) => {
-        if (layer.isEnabled()) {
-          layer.update()
+        if (!layer.isEnabled()) return
+
+        // Run the layer's own update logic
+        layer.update()
+
+        // Apply viewport culling every VIEWPORT_CHECK_INTERVAL ticks
+        if (shouldCull && viewRect && layer.getEntities) {
+          try {
+            const entities = layer.getEntities()
+            // Reset visibility based on viewport
+            for (const entity of entities) {
+              if (!entity.position || !entity.position.getValue) {
+                entity.show = true
+                continue
+              }
+
+              // Force throttling if too many entities visible
+              if (totalVisibleCount >= MAX_VISIBLE_ENTITIES) {
+                entity.show = false
+                continue
+              }
+
+              try {
+                const currentPos = entity.position.getValue(
+                  this.viewer.clock.currentTime
+                )
+                if (currentPos) {
+                  const visible = isCartesianInView(currentPos, viewRect)
+                  entity.show = visible
+                  if (visible) totalVisibleCount++
+                } else {
+                  entity.show = true
+                  totalVisibleCount++
+                }
+              } catch {
+                // If position evaluation fails, keep entity visible
+                entity.show = true
+                totalVisibleCount++
+              }
+            }
+          } catch {
+            // Silently skip layers that throw during culling
+          }
         }
       })
+
+      if (shouldCull && this.tickCounter % (VIEWPORT_CHECK_INTERVAL * 5) === 0) {
+        console.debug(
+          `[LayerManager] Viewport: ~${totalVisibleCount} entities visible`
+        )
+      }
     })
   }
 

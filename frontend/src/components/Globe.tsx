@@ -127,6 +127,7 @@ function GlobeInner(
         viewerRef.current.trackedEntity = undefined
       }
       satelliteLayerRef.current?.stopTracking()
+      flightLayerRef.current?.stopTracking()
     },
   }))
 
@@ -134,9 +135,43 @@ function GlobeInner(
   useEffect(() => {
     Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN
     const viewer = new Cesium.Viewer("globe", {
-      timeline: true,
-      animation: true,
+      timeline: false,
+      animation: false,
       shouldAnimate: true,
+      // Performance optimizations
+      orderIndependentTranslucency: false,
+      sceneModePicker: false,
+      baseLayerPicker: false,
+      navigationHelpButton: false,
+      homeButton: false,
+      geocoder: false,
+      fullscreenButton: false,
+      infoBox: false,
+      selectionIndicator: true,
+      // Terrain
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      // Sky and atmosphere (minimal for perf)
+      skyBox: false,
+      skyAtmosphere: false,
+    })
+
+    // Performance: disable MSAA, reduce rasterizer samples
+    viewer.scene.fxaa = true
+    viewer.scene.highDynamicRange = false
+    viewer.scene.logarithmicDepthBuffer = true
+    viewer.scene.globe.enableLighting = false
+    viewer.scene.globe.showWaterEffect = false
+    viewer.scene.globe.depthTestAgainstTerrain = false
+
+    // Fog for natural culling of distant entities
+    viewer.scene.fog.enabled = true
+    viewer.scene.fog.saturation = 0.2
+    viewer.scene.fog.density = 0.00005
+    viewer.scene.fog.minimumBrightness = 0.8
+
+    // Set default camera to a nice overview position
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(0, 20, 20_000_000),
     })
 
     viewerRef.current = viewer

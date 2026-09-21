@@ -14,7 +14,7 @@ export interface FlyToAction {
 export interface FilterLayerAction {
   type: "filterLayer"
   payload: {
-    layer: "satellite" | "vessel" | "flight"
+    layer: "satellite" | "flight"
     filter: string
   }
 }
@@ -29,7 +29,7 @@ export interface SwitchModeAction {
 export interface TrackEntityAction {
   type: "trackEntity"
   payload: {
-    layer: "satellite" | "vessel" | "flight"
+    layer: "satellite" | "flight"
     identifier: string
   }
 }

@@ -1,9 +1,23 @@
 import * as Cesium from "cesium"
 import type { Layer } from "../../Layer"
-import type { Flight, FlightFilter } from "./flightTypes"
+import type { Flight, FlightFilter, FlightRoute } from "./flightTypes"
 import { classifyFlight } from "./flightTypes"
 import { FlightEntityFactory } from "./entityFactory"
-import { FLIGHT_TRAIL_MAX_POSITIONS, FLIGHT_HEADING_PREVIEW_SECONDS } from "./constants"
+import { FLIGHT_TRAIL_MAX_POSITIONS } from "./constants"
+import {
+  FLIGHT_ROUTE_COLOR,
+  FLIGHT_ROUTE_WIDTH,
+  FLIGHT_ROUTE_GLOW_POWER,
+  FLIGHT_DEPARTURE_COLOR,
+  FLIGHT_ARRIVAL_COLOR,
+  FLIGHT_AIRPORT_MARKER_SIZE,
+  FLIGHT_TRAJECTORY_COLOR,
+  FLIGHT_TRAJECTORY_WIDTH,
+} from "./constants"
+import {
+  getViewRectangle,
+  isPositionInView,
+} from "../../utils/viewportCulling"
 
 const FLIGHT_INFO_EVENT = "flightInfoRequest"
 
@@ -13,14 +27,28 @@ interface FlightEntityData {
   positionHistory: Cesium.Cartesian3[]
 }
 
+interface RouteEntities {
+  /** Polyline from departure → current → arrival */
+  routePath: Cesium.Entity | null
+  /** The actual flown trajectory from OpenSky */
+  trajectory: Cesium.Entity | null
+  /** Departure airport marker (includes label) */
+  departureMarker: Cesium.Entity | null
+  /** Arrival airport marker (includes label) */
+  arrivalMarker: Cesium.Entity | null
+}
+
 /**
  * Flight layer implementation
  * Manages aircraft entities from OpenSky data on a Cesium viewer
  *
  * Flights are polled every ~30s and positions are updated in-place
  * using ConstantPositionProperty. Each flight has a trailing polyline
- * showing the recent path. Clicking a flight fires a custom event
- * that the UI can listen to for showing flight info.
+ * showing the recent path.
+ *
+ * Single-click: dispatches flight info event + flies to flight
+ * Double-click: fetches route info from OpenSky, displays full origin→destination
+ *   path, airport markers, and trajectory polyline.
  */
 export class FlightLayer implements Layer {
   readonly id = "flight"
@@ -36,8 +64,18 @@ export class FlightLayer implements Layer {
   // Track entity ID -> {entity, trail, positionHistory}
   private flightEntities: Record<string, FlightEntityData> = {}
 
-  // Click-handler references for cleanup
+  // Track route display entities per flight
+  private routeEntities: Record<string, RouteEntities> = {}
+
+  // Track which flight currently has its route displayed
+  private trackedFlightId: string | null = null
+
+  // Currently cached route data
+  private routeCache: Record<string, FlightRoute> = {}
+
+  // Handler references for cleanup
   private removeClickHandler: (() => void) | null = null
+  private removeDoubleClickHandler: (() => void) | null = null
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer
@@ -47,6 +85,7 @@ export class FlightLayer implements Layer {
     if (this.enabled) return
     this.enabled = true
     this.setupClickHandler()
+    this.setupDoubleClickHandler()
     if (this.dataLoaded) {
       this.renderFlights()
     }
@@ -57,7 +96,23 @@ export class FlightLayer implements Layer {
     this.enabled = false
     this.removeClickHandler?.()
     this.removeClickHandler = null
+    this.removeDoubleClickHandler?.()
+    this.removeDoubleClickHandler = null
     this.clearEntities()
+    this.clearRouteEntities()
+    this.routeCache = {}
+    this.trackedFlightId = null
+  }
+
+  /**
+   * Stop tracking / clear route display
+   */
+  stopTracking(): void {
+    if (this.trackedFlightId) {
+      this.clearRouteForFlight(this.trackedFlightId)
+      this.trackedFlightId = null
+    }
+    this.viewer.trackedEntity = undefined
   }
 
   loadData(data: Flight[]): void {
@@ -71,12 +126,10 @@ export class FlightLayer implements Layer {
 
   /**
    * Periodic update: refresh positions and trails in-place.
-   * Called by LayerManager every ~10s, but new flight data comes via React Query.
+   * Called by LayerManager every ~10s.
    */
   update(): void {
     if (!this.enabled || !this.dataLoaded) return
-    // On each tick, we extrapolate the trail a bit using heading + velocity
-    // to show a smooth preview even between polls
     this.extrapolateTrails()
   }
 
@@ -103,11 +156,15 @@ export class FlightLayer implements Layer {
     this.dataSource = dataSource
   }
 
+  // ─── Entity rendering ──────────────────────────────────────────
+
   /**
    * Render flights based on current filter
    */
   private renderFlights(): void {
     this.clearEntities()
+    this.clearRouteEntities()
+    this.trackedFlightId = null
 
     const filtered = this.flightData.filter((flight) => {
       if (this.filter === "all") return true
@@ -116,10 +173,16 @@ export class FlightLayer implements Layer {
 
     const collection = this.dataSource?.entities ?? this.viewer.entities
 
+    // Viewport culling: only create entities for flights near the camera view
+    const viewRect = getViewRectangle(this.viewer.scene)
+
     filtered.forEach((flight) => {
+      if (viewRect && !isPositionInView(flight.longitude, flight.latitude, viewRect)) {
+        return
+      }
+
       const { entity, trail } = FlightEntityFactory.createEntity(flight, collection)
 
-      // Seed position history with current position
       const pos = Cesium.Cartesian3.fromDegrees(
         flight.longitude,
         flight.latitude,
@@ -129,15 +192,13 @@ export class FlightLayer implements Layer {
       this.flightEntities[flight.icao24] = {
         entity,
         trail,
-        positionHistory: [pos, pos], // Start with duplicate so trail renders
+        positionHistory: [pos, pos],
       }
     })
   }
 
   /**
    * Refresh existing entities with new flight data (in-place).
-   * Called when fresh data arrives from the API poll.
-   * Preserves position history and updates trails.
    */
   refreshPositions(flights: Flight[]): void {
     if (!this.enabled || !this.dataLoaded) return
@@ -146,7 +207,8 @@ export class FlightLayer implements Layer {
 
     const collection = this.dataSource?.entities ?? this.viewer.entities
 
-    // Update existing entities
+    const viewRect = getViewRectangle(this.viewer.scene)
+
     for (const flight of flights) {
       const existing = this.flightEntities[flight.icao24]
       if (existing) {
@@ -156,19 +218,39 @@ export class FlightLayer implements Layer {
           flight.baroAltitude || flight.geoAltitude || 10000
         )
 
-        // Append to position history
         existing.positionHistory.push(newPos)
         if (existing.positionHistory.length > FLIGHT_TRAIL_MAX_POSITIONS) {
           existing.positionHistory = existing.positionHistory.slice(-FLIGHT_TRAIL_MAX_POSITIONS)
         }
 
-        // Update entity position + trail
         FlightEntityFactory.updatePosition(
           existing.entity,
           flight,
           existing.trail,
           existing.positionHistory
         )
+
+        // If this flight has a route displayed, update the route path
+        // to include the updated current position
+        if (this.routeEntities[flight.icao24]) {
+          this.updateRoutePath(flight)
+        }
+      } else if (this.filter === "all" || classifyFlight(flight.callsign) === this.filter) {
+        if (viewRect && !isPositionInView(flight.longitude, flight.latitude, viewRect)) {
+          continue
+        }
+
+        const { entity, trail } = FlightEntityFactory.createEntity(flight, collection)
+        const pos = Cesium.Cartesian3.fromDegrees(
+          flight.longitude,
+          flight.latitude,
+          flight.baroAltitude || flight.geoAltitude || 10000
+        )
+        this.flightEntities[flight.icao24] = {
+          entity,
+          trail,
+          positionHistory: [pos, pos],
+        }
       }
     }
 
@@ -178,45 +260,23 @@ export class FlightLayer implements Layer {
       if (!currentIcaos.has(icao24)) {
         collection.remove(data.entity)
         if (data.trail) collection.remove(data.trail)
+        this.clearRouteForFlight(icao24)
         delete this.flightEntities[icao24]
       }
     }
   }
 
   /**
-   * Extrapolate trails slightly between poll intervals so the
-   * path keeps looking smooth. Advances the last trail point
-   * in the direction of the aircraft's heading.
+   * Extrapolate trails slightly between poll intervals
    */
   private extrapolateTrails(): void {
-    const secondsSinceLastPoll = 10 // LayerManager ticks every 10s
-    for (const data of Object.values(this.flightEntities)) {
-      if (data.positionHistory.length < 2) continue
-
-      const lastPos = data.positionHistory[data.positionHistory.length - 1]
-      const secondLast = data.positionHistory[data.positionHistory.length - 2]
-
-      // Compute approximate heading from last two positions
-      const dx = lastPos.x - secondLast.x
-      const dy = lastPos.y - secondLast.y
-      const dz = lastPos.z - secondLast.z
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-
-      if (dist < 1) continue
-
-      // Extend the last segment by a small amount
-      const speed = dist / 10 // per second
-      const factor = 1 + (secondsSinceLastPoll * 0.3) / speed
-      // Just move the last point slightly - don't add new positions between polls
-      // The real positions will be set when new data arrives
-    }
+    // No-op: real positions come via refreshPositions
   }
 
-  // ─── Click-to-Info ──────────────────────────────────────────────
+  // ─── Click and Double-Click Handlers ──────────────────────────
 
   /**
-   * Set up click handler: when a flight entity is clicked,
-   * dispatch a custom event with flight info so the React UI can show a panel.
+   * Set up single-click handler: dispatch flight info event + fly to flight
    */
   private setupClickHandler(): void {
     const handler = this.viewer.screenSpaceEventHandler
@@ -229,7 +289,6 @@ export class FlightLayer implements Layer {
 
         const entity = picked.id as Cesium.Entity
 
-        // Check if it's a flight entity (not a trail)
         if (!entity.id?.startsWith("flight-")) return
         if (entity.id?.startsWith("flight-trail-")) return
 
@@ -258,6 +317,330 @@ export class FlightLayer implements Layer {
     )
   }
 
+  /**
+   * Set up double-click handler: fetch and display full route
+   */
+  private setupDoubleClickHandler(): void {
+    const handler = this.viewer.screenSpaceEventHandler
+    if (!handler) return
+
+    this.removeDoubleClickHandler = handler.setInputAction(
+      (click: { position: Cesium.Cartesian2 }) => {
+        const picked = this.viewer.scene.pick(click.position)
+        if (!Cesium.defined(picked) || !picked.id) return
+
+        const entity = picked.id as Cesium.Entity
+
+        if (!entity.id?.startsWith("flight-")) return
+        if (entity.id?.startsWith("flight-trail-")) return
+
+        const icao24 = entity.id.replace("flight-", "")
+        this.displayFlightRoute(icao24, entity)
+      },
+      Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK
+    )
+  }
+
+  // ─── Route Display ────────────────────────────────────────────
+
+  /**
+   * Fetch and display route for a flight
+   */
+  private async displayFlightRoute(icao24: string, entity: Cesium.Entity): Promise<void> {
+    const flightData = this.flightData.find((f) => f.icao24 === icao24)
+    if (!flightData) return
+
+    // Toggle: if already showing this flight's route, clear it
+    if (this.trackedFlightId === icao24) {
+      this.clearRouteForFlight(icao24)
+      this.viewer.trackedEntity = undefined
+      this.trackedFlightId = null
+      return
+    }
+
+    // Clear any previous route
+    if (this.trackedFlightId) {
+      this.clearRouteForFlight(this.trackedFlightId)
+    }
+
+    // Track the flight entity with camera
+    this.viewer.trackedEntity = entity
+
+    // Get route data (from cache or API)
+    const route = await this.fetchRoute(icao24, flightData.callsign)
+
+    if (!route.hasRoute) {
+      // No route data available — just show the trail and projected heading
+      return
+    }
+
+    this.trackedFlightId = icao24
+    this.renderRoute(icao24, flightData, route)
+  }
+
+  /**
+   * Fetch route from backend (with in-memory cache)
+   */
+  private async fetchRoute(icao24: string, callsign: string): Promise<FlightRoute> {
+    // Check in-memory cache first
+    if (this.routeCache[icao24]) {
+      return this.routeCache[icao24]
+    }
+
+    try {
+      // Dynamic import to avoid circular deps
+      const { fetchFlightRoute } = await import("../../../flights/fetchFlightRoute")
+      const route = await fetchFlightRoute(icao24, callsign)
+      this.routeCache[icao24] = route
+      return route
+    } catch {
+      return {
+        icao24,
+        callsign,
+        estDepartureAirport: null,
+        estArrivalAirport: null,
+        departureCoords: null,
+        arrivalCoords: null,
+        path: [],
+        hasRoute: false,
+      }
+    }
+  }
+
+  /**
+   * Render route entities: airport markers, route polyline, trajectory path
+   */
+  private renderRoute(icao24: string, flight: Flight, route: FlightRoute): void {
+    const collection = this.dataSource?.entities ?? this.viewer.entities
+    const routeEnt: RouteEntities = {
+      routePath: null,
+      trajectory: null,
+      departureMarker: null,
+      arrivalMarker: null,
+    }
+
+    const currentPos = Cesium.Cartesian3.fromDegrees(
+      flight.longitude,
+      flight.latitude,
+      flight.baroAltitude || flight.geoAltitude || 10000
+    )
+
+    // Build route positions: departure → current → arrival
+    const routePositions: Cesium.Cartesian3[] = []
+
+    if (route.departureCoords) {
+      const depPos = Cesium.Cartesian3.fromDegrees(
+        route.departureCoords.longitude,
+        route.departureCoords.latitude,
+        500 // Low altitude for airport
+      )
+      routePositions.push(depPos)
+    }
+    routePositions.push(currentPos)
+    if (route.arrivalCoords) {
+      const arrPos = Cesium.Cartesian3.fromDegrees(
+        route.arrivalCoords.longitude,
+        route.arrivalCoords.latitude,
+        500
+      )
+      routePositions.push(arrPos)
+    }
+
+    // 1. Route polyline (departure → current → arrival)
+    if (routePositions.length >= 2) {
+      // Add route path
+      const routeColors: Cesium.Color[] = []
+      const startColor = FLIGHT_DEPARTURE_COLOR.clone()
+      const endColor = FLIGHT_ARRIVAL_COLOR.clone()
+      for (let i = 0; i < routePositions.length; i++) {
+        const t = routePositions.length > 1 ? i / (routePositions.length - 1) : 0
+        routeColors.push(Cesium.Color.lerp(startColor, endColor, t, new Cesium.Color()))
+      }
+
+      routeEnt.routePath = collection.add({
+        id: `flight-route-${icao24}`,
+        polyline: new Cesium.PolylineGraphics({
+          positions: routePositions,
+          width: FLIGHT_ROUTE_WIDTH,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: FLIGHT_ROUTE_GLOW_POWER,
+            color: FLIGHT_ROUTE_COLOR,
+          }),
+          arcType: Cesium.ArcType.GEODESIC,
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50_000_000),
+          clampToGround: true,
+        }),
+        properties: { parentFlightId: icao24 },
+      })
+    }
+
+    // 2. Trajectory path (actual flown path from OpenSky)
+    if (route.path.length >= 2) {
+      const trajPositions = route.path.map((wp) =>
+        Cesium.Cartesian3.fromDegrees(wp.longitude, wp.latitude, wp.altitude || 10000)
+      )
+
+      routeEnt.trajectory = collection.add({
+        id: `flight-trajectory-${icao24}`,
+        polyline: new Cesium.PolylineGraphics({
+          positions: trajPositions,
+          width: FLIGHT_TRAJECTORY_WIDTH,
+          material: new Cesium.PolylineGlowMaterialProperty({
+            glowPower: 0.15,
+            color: FLIGHT_TRAJECTORY_COLOR,
+          }),
+          arcType: Cesium.ArcType.GEODESIC,
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50_000_000),
+          clampToGround: false,
+        }),
+        properties: { parentFlightId: icao24 },
+      })
+    }
+
+    // 3. Airport markers
+    if (route.departureCoords) {
+      const depPos = Cesium.Cartesian3.fromDegrees(
+        route.departureCoords.longitude,
+        route.departureCoords.latitude,
+        0
+      )
+
+      routeEnt.departureMarker = collection.add({
+        id: `flight-departure-${icao24}`,
+        position: depPos,
+        point: new Cesium.PointGraphics({
+          pixelSize: FLIGHT_AIRPORT_MARKER_SIZE,
+          color: FLIGHT_DEPARTURE_COLOR,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 10_000_000),
+        }),
+        label: new Cesium.LabelGraphics({
+          text: `🛫 ${route.estDepartureAirport || "Departure"}`,
+          font: "12px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          showBackground: true,
+          backgroundColor: new Cesium.Color(0, 0, 0, 0.7),
+          backgroundPadding: new Cesium.Cartesian2(4, 2),
+          pixelOffset: new Cesium.Cartesian2(0, -20),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5_000_000),
+          show: true,
+        }),
+        properties: { parentFlightId: icao24 },
+      })
+    }
+
+    if (route.arrivalCoords) {
+      const arrPos = Cesium.Cartesian3.fromDegrees(
+        route.arrivalCoords.longitude,
+        route.arrivalCoords.latitude,
+        0
+      )
+
+      routeEnt.arrivalMarker = collection.add({
+        id: `flight-arrival-${icao24}`,
+        position: arrPos,
+        point: new Cesium.PointGraphics({
+          pixelSize: FLIGHT_AIRPORT_MARKER_SIZE,
+          color: FLIGHT_ARRIVAL_COLOR,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 10_000_000),
+        }),
+        label: new Cesium.LabelGraphics({
+          text: `🛬 ${route.estArrivalAirport || "Arrival"}`,
+          font: "12px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          showBackground: true,
+          backgroundColor: new Cesium.Color(0, 0, 0, 0.7),
+          backgroundPadding: new Cesium.Cartesian2(4, 2),
+          pixelOffset: new Cesium.Cartesian2(0, 20),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5_000_000),
+          show: true,
+        }),
+        properties: { parentFlightId: icao24 },
+      })
+    }
+
+    this.routeEntities[icao24] = routeEnt
+  }
+
+  /**
+   * Update route path with the latest flight position
+   * Called on each poll to keep the route up to date
+   */
+  private updateRoutePath(flight: Flight): void {
+    const route = this.routeCache[flight.icao24]
+    const routeEnt = this.routeEntities[flight.icao24]
+    if (!route || !routeEnt || !routeEnt.routePath) return
+
+    const currentPos = Cesium.Cartesian3.fromDegrees(
+      flight.longitude,
+      flight.latitude,
+      flight.baroAltitude || flight.geoAltitude || 10000
+    )
+
+    const positions: Cesium.Cartesian3[] = []
+    if (route.departureCoords) {
+      positions.push(
+        Cesium.Cartesian3.fromDegrees(
+          route.departureCoords.longitude,
+          route.departureCoords.latitude,
+          500
+        )
+      )
+    }
+    positions.push(currentPos)
+    if (route.arrivalCoords) {
+      positions.push(
+        Cesium.Cartesian3.fromDegrees(
+          route.arrivalCoords.longitude,
+          route.arrivalCoords.latitude,
+          500
+        )
+      )
+    }
+
+    if (positions.length >= 2) {
+      const polyline = routeEnt.routePath.polyline as Cesium.PolylineGraphics
+      if (polyline) {
+        polyline.positions = new Cesium.ConstantProperty(positions)
+      }
+    }
+  }
+
+  // ─── Cleanup ─────────────────────────────────────────────────
+
+  /**
+   * Clear route display entities for a specific flight
+   */
+  private clearRouteForFlight(icao24: string): void {
+    const routeEnt = this.routeEntities[icao24]
+    if (!routeEnt) return
+
+    const collection = this.dataSource?.entities ?? this.viewer.entities
+
+    if (routeEnt.routePath) collection.remove(routeEnt.routePath)
+    if (routeEnt.trajectory) collection.remove(routeEnt.trajectory)
+    if (routeEnt.departureMarker) collection.remove(routeEnt.departureMarker)
+    if (routeEnt.arrivalMarker) collection.remove(routeEnt.arrivalMarker)
+
+    delete this.routeEntities[icao24]
+  }
+
+  /**
+   * Clear all route display entities
+   */
+  private clearRouteEntities(): void {
+    for (const icao24 of Object.keys(this.routeEntities)) {
+      this.clearRouteForFlight(icao24)
+    }
+    this.routeEntities = {}
+  }
+
+  /**
+   * Clear flight entities
+   */
   private clearEntities(): void {
     const collection = this.dataSource?.entities ?? this.viewer.entities
     for (const data of Object.values(this.flightEntities)) {

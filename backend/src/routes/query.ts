@@ -28,14 +28,11 @@ async function queryNearbyEntitiesData(
   lat: number,
   lon: number,
   radiusKm: number = 100,
-  includeFlights: boolean = true,
-  includeVessels: boolean = true
+  includeFlights: boolean = true
 ): Promise<{
   flights: Array<{ callsign: string; distanceKm: number; altitude: number; heading: number; velocity: number; lat: number; lon: number }>;
-  vessels: Array<{ name: string; mmsi: string; distanceKm: number; speed: number; course: number; type: string; lat: number; lon: number }>;
 }> {
   const flightsNearby: Array<any> = [];
-  const vesselsNearby: Array<any> = [];
 
   try {
     const redis = await getRedis();
@@ -69,47 +66,11 @@ async function queryNearbyEntitiesData(
         }
       }
     }
-
-    // Query vessels from Redis hash
-    if (includeVessels) {
-      const allVessels = await redis.hGetAll(config.cache.vesselHash);
-      const vesselTypeLabels: Record<number, string> = {
-        0: "Unknown", 20: "Wing in ground", 30: "Fishing", 31: "Towing",
-        32: "Towing large", 33: "Dredging", 34: "Diving", 35: "Military",
-        36: "Sailing", 37: "Pleasure", 40: "High-speed", 50: "Pilot",
-        51: "SAR", 52: "Tug", 53: "Port tender", 54: "Pollution",
-        55: "Law enforcement", 60: "Passenger", 61: "Passenger high-speed",
-        70: "Cargo", 71: "Cargo hazardous", 72: "Cargo", 73: "Cargo",
-        74: "Cargo", 80: "Tanker", 81: "Tanker hazardous", 82: "Tanker",
-        83: "Tanker", 84: "Tanker", 90: "Other",
-      };
-      for (const json of Object.values(allVessels)) {
-        try {
-          const v = JSON.parse(json) as { name: string; mmsi: string; lat: number; lon: number; speed: number; course: number; vesselType: number };
-          if (!v.lat || !v.lon) continue;
-          const d = haversineKm(lat, lon, v.lat, v.lon);
-          if (d <= radiusKm) {
-            vesselsNearby.push({
-              name: v.name || v.mmsi,
-              mmsi: v.mmsi,
-              distanceKm: Math.round(d * 10) / 10,
-              speed: Math.round(v.speed || 0),
-              course: Math.round(v.course || 0),
-              type: vesselTypeLabels[v.vesselType] || "Unknown",
-              lat: v.lat,
-              lon: v.lon,
-            });
-          }
-        } catch {
-          // skip malformed
-        }
-      }
-    }
   } catch {
     // Redis unavailable — return whatever we have
   }
 
-  return { flights: flightsNearby, vessels: vesselsNearby };
+  return { flights: flightsNearby };
 }
 
 /**
@@ -150,19 +111,19 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "filterLayer",
-      description: "Apply a filter to the currently active visualization layer (satellite, vessel, or flight)",
+      description: "Apply a filter to the currently active visualization layer (satellite or flight)",
       parameters: {
         type: "object",
         properties: {
           layer: {
             type: "string",
-            enum: ["satellite", "vessel", "flight"],
+            enum: ["satellite", "flight"],
             description: "Which layer to filter",
           },
           filter: {
             type: "string",
-            enum: ["all", "cargo", "tanker", "passenger", "fishing", "gps", "iss", "communications", "debris", "commercial", "private", "military"],
-            description: "Filter value: vessel types (cargo/tanker/passenger/fishing) or satellite types (gps/iss/communications/debris) or flight types (commercial/private/military/cargo)",
+            enum: ["all", "gps", "iss", "communications", "debris", "commercial", "private", "military", "cargo"],
+            description: "Filter value: satellite types (gps/iss/communications/debris) or flight types (commercial/private/military/cargo)",
           },
         },
         required: ["layer", "filter"],
@@ -191,18 +152,18 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "trackEntity",
-      description: "Track a specific satellite, vessel, or flight by name/identifier. The camera will follow this entity.",
+      description: "Track a specific satellite or flight by name/identifier. The camera will follow this entity.",
       parameters: {
         type: "object",
         properties: {
           layer: {
             type: "string",
-            enum: ["satellite", "vessel", "flight"],
+            enum: ["satellite", "flight"],
             description: "Which layer the entity belongs to",
           },
           identifier: {
             type: "string",
-            description: "Name of satellite, MMSI of vessel, or callsign/ICAO24 of flight to track (e.g. 'ISS', 'AAL123', 'UPS2789')",
+            description: "Name of satellite or callsign/ICAO24 of flight to track (e.g. 'ISS', 'AAL123', 'UPS2789')",
           },
         },
         required: ["layer", "identifier"],
@@ -213,7 +174,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "queryNearbyEntities",
-      description: "Query the live database for flights (aircraft/planes), vessels (ships) near a geographic location. Returns counts and details of entities within a given radius. Use this to answer questions like 'what planes are near me?', 'are there any ships nearby?', or 'when will a plane pass over my location?'",
+      description: "Query the live database for flights (aircraft/planes) near a geographic location. Returns counts and details of flights within a given radius. Use this to answer questions like 'what planes are near me?', 'when will a plane pass over my location?'.",
       parameters: {
         type: "object",
         properties: {
@@ -232,10 +193,6 @@ const TOOLS = [
           includeFlights: {
             type: "boolean",
             description: "Whether to include flights/aircraft in the results (default: true)",
-          },
-          includeVessels: {
-            type: "boolean",
-            description: "Whether to include vessels/ships in the results (default: true)",
           },
         },
         required: ["latitude", "longitude"],
@@ -281,56 +238,47 @@ const TOOLS = [
 /** System prompt defining the assistant's role */
 const SYSTEM_PROMPT = [
   "You are God's Eye - a spatial intelligence assistant for a global surveillance dashboard.",
-  "You control a 3D globe with satellite tracking, vessel (ship), and flight (aircraft) tracking layers.",
+  "You control a 3D globe with satellite tracking and flight (aircraft) tracking layers.",
   "",
   "AVAILABLE DATA:",
   "- Satellites: Active satellites tracked via TLE data (ISS, GPS, communications, debris)",
-  "- Vessels: Ships with AIS transponders (cargo, tanker, passenger, fishing)",
   "- Flights: Aircraft tracked via OpenSky ADSB data (commercial, cargo, private, military)",
   "",
   "CAPABILITIES:",
   "- Fly the camera to any location on Earth",
-  "- Filter vessels by type (cargo, tanker, passenger, fishing)",
   "- Filter satellites by category (gps, iss, communications, debris)",
   "- Filter flights by type (commercial, cargo, private, military)",
-  "- Switch between satellite and vessel visualization modes",
+  "- Switch between satellite and flight visualization modes",
   "- Track specific entities by name",
   "- Show information to the user",
   "",
   "RULES:",
   "1. CLASSIFY every query as either a QUESTION or a COMMAND:",
-  "   - QUESTION: User asks about real-time data (e.g. 'when will I get a plane above my head?', 'are there ships near X?', 'what flights are over Y?'). For these, FIRST call queryNearbyEntities() to get real data, THEN synthesize an answer and call answerQuery() to display it.",
+  "   - QUESTION: User asks about real-time data (e.g. 'when will I get a plane above my head?', 'what flights are over Y?'). For these, FIRST call queryNearbyEntities() to get real data, THEN synthesize an answer and call answerQuery() to display it.",
   "   - COMMAND: User tells you to do something in the UI (e.g. 'show me', 'navigate to', 'filter by', 'switch to', 'track'). For these, directly use flyTo(), filterLayer(), switchMode(), trackEntity().",
   "",
   "2. Use flyTo() to navigate to locations mentioned in queries",
-  "3. Use filterLayer() when users ask to see specific types of vessels, satellites, or flights",
-  "4. Use switchMode() to toggle between satellite, vessel, and flight modes",
-  "5. Use trackEntity() when users want to follow a specific satellite, vessel, or flight",
+  "3. Use filterLayer() when users ask to see specific types of satellites or flights",
+  "4. Use switchMode() to toggle between satellite and flight modes",
+  "5. Use trackEntity() when users want to follow a specific satellite or flight",
   "6. Use showInfo() to explain what you are doing or display action confirmations",
   "7. Use answerQuery() to display a complete data-driven answer (only after calling queryNearbyEntities)",
   "8. For region queries (e.g. 'near Gujarat coastline'): if COMMAND, flyTo + filter. If QUESTION, queryNearbyEntities first, then answer.",
-  "9. If the user doesn't specify a layer but asks about ships/vessels, use 'vessel' mode; if they ask about satellites/space, use 'satellite'; if they ask about planes/flights/aircraft, use 'flight'",
+  "9. If the user asks about satellites/space, use 'satellite' mode; if they ask about planes/flights/aircraft, use 'flight' mode",
   "10. Be concise - 1-2 sentences for commands, a short paragraph for data answers",
   "",
   "EXAMPLES:",
-  "",
-  "User (COMMAND): 'Show cargo vessels near Gujarat coastline'",
-  "-> flyTo(22.3, 72.6, 500000, 'Gujarat coastline') + switchMode('vessel') + filterLayer('vessel', 'cargo') + showInfo('Showing cargo vessels near Gujarat coastline')",
   "",
   "User (COMMAND): 'Show commercial flights over Mumbai'",
   "-> flyTo(19.0760, 72.8777, 1000000, 'Mumbai') + switchMode('flight') + filterLayer('flight', 'commercial') + showInfo('Showing commercial flights over Mumbai')",
   "",
   "User (QUESTION): 'when will I get a plane above my head, I am in Dindoli, Surat'",
-  "-> First call queryNearbyEntities(latitude:21.1702, longitude:72.8311, radiusKm:100, includeFlights:true, includeVessels:false)",
+  "-> First call queryNearbyEntities(latitude:21.1702, longitude:72.8311, radiusKm:100, includeFlights:true)",
   "-> LLM examines the returned flight data, computes which ones are approaching Surat and at what speed",
   "-> Call answerQuery() with a friendly answer. Also call flyTo(21.1702, 72.8311, 50000, 'Surat')",
   "",
-  "User (QUESTION): 'Are there any ships near Mumbai right now?'",
-  "-> Call queryNearbyEntities(latitude:19.0760, longitude:72.8777, radiusKm:100, includeFlights:false, includeVessels:true)",
-  "-> Call answerQuery() with a summary of nearby vessels",
-  "",
   "User (QUESTION): 'What flights are over India?'",
-  "-> Call queryNearbyEntities(latitude:20.5937, longitude:78.9629, radiusKm:500, includeFlights:true, includeVessels:false)",
+  "-> Call queryNearbyEntities(latitude:20.5937, longitude:78.9629, radiusKm:500, includeFlights:true)",
   "-> Call answerQuery() with count and highlights",
   "",
   "User (COMMAND): 'show me the plane region of India'",

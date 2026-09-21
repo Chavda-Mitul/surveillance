@@ -60,17 +60,15 @@ export class SatelliteLayer implements Layer {
    * Load satellite data and initialize the Web Worker
    */
   loadData(data: SatelliteData[]): void {
-    if (this.dataLoaded) {
-      this.satelliteData = data
-      return
+    this.satelliteData = data
+
+    if (!this.dataLoaded) {
+      this.dataLoaded = true
+      // Initialize the worker in background — never blocks rendering
+      this.initWorker(data)
     }
 
-    this.satelliteData = data
-    this.dataLoaded = true
-
-    // Initialize the worker in background — never blocks rendering
-    this.initWorker(data)
-
+    // Always re-render if enabled (handles mode switching)
     if (this.enabled) {
       this.renderSatellites()
     }

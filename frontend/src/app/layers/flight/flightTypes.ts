@@ -1,2 +1,2 @@
-export type { Flight, FlightFilter } from "../../../flights/types"
+export type { Flight, FlightFilter, FlightRoute } from "../../../flights/types"
 export { classifyFlight } from "../../../flights/types"

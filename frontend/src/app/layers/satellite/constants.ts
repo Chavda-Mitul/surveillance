@@ -5,21 +5,22 @@ import * as Cesium from "cesium"
  */
 
 // Update intervals
-export const UPDATE_INTERVAL_SECONDS = 30
-export const NUM_POSITION_SAMPLES = 20
+// Reduced sample count and interval for better performance
+export const UPDATE_INTERVAL_SECONDS = 60
+export const NUM_POSITION_SAMPLES = 10
 export const AVAILABILITY_BUFFER_SECONDS = 60
 
 // Scaling and distance settings
 export const SCALE_BY_DISTANCE = new Cesium.NearFarScalar(
   1.0e5,  // Near distance
-  1.2,    // Near scale
-  2.0e7,  // Far distance
-  0.05    // Far scale
+  1.0,    // Near scale
+  1.0e8,  // Far distance
+  0.02    // Far scale
 )
 
 export const LABEL_DISTANCE_CONDITION = new Cesium.DistanceDisplayCondition(
   0,
-  2000000 // Only show labels within 2M meters
+  1000000 // Only show labels within 1M meters (was 2M)
 )
 
 // ISS Billboard settings

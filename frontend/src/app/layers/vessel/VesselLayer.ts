@@ -6,6 +6,10 @@ import { VesselEntityFactory } from "./entityFactory"
 import { VesselClusterEntityFactory } from "./clusterEntityFactory"
 import { getClusteringState, getCameraAltitude, type VesselCluster } from "../../../vessels/clusterer"
 import { VESSEL_TRAIL_MAX_POSITIONS } from "./constants"
+import {
+  getViewRectangle,
+  isPositionInView,
+} from "../../utils/viewportCulling"
 
 const VESSEL_INFO_EVENT = "vesselInfoRequest"
 
@@ -209,9 +213,22 @@ export class VesselLayer implements Layer {
       return classifyVessel(v.vesselType) === this.filter
     })
 
+    // Viewport culling: get current camera rectangle to skip entities
+    // that are nowhere near the visible area (only when moderately zoomed)
+    const cameraAltitude = getCameraAltitude(this.viewer)
+    const viewRect =
+      cameraAltitude < 1_000_000
+        ? getViewRectangle(this.viewer.scene)
+        : null
+
     const newData: Record<string, VesselEntityData> = {}
 
     for (const vessel of filtered) {
+      // Viewport culling: skip vessels outside the visible area when zoomed in
+      if (viewRect && !isPositionInView(vessel.lon, vessel.lat, viewRect)) {
+        continue
+      }
+
       const existing = this.vesselEntityData[vessel.mmsi]
 
       if (existing) {
@@ -282,6 +299,15 @@ export class VesselLayer implements Layer {
     // Add new vessels
     for (const [mmsi, vessel] of latestByMMSI) {
       if (this.filter !== "all" && classifyVessel(vessel.vesselType) !== this.filter) continue
+
+      // Viewport culling for new vessels
+      const cameraAltitude = getCameraAltitude(this.viewer)
+      if (cameraAltitude < 1_000_000) {
+        const viewRect = getViewRectangle(this.viewer.scene)
+        if (viewRect && !isPositionInView(vessel.lon, vessel.lat, viewRect)) {
+          continue
+        }
+      }
       const { entity, trail } = VesselEntityFactory.createEntity(vessel, this.entityCollection)
       const pos = Cesium.Cartesian3.fromDegrees(vessel.lon, vessel.lat, 0)
       this.vesselEntityData[mmsi] = {

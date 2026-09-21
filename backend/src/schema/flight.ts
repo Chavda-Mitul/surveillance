@@ -31,3 +31,35 @@ export const FlightResponseSchema = z.object({
 })
 
 export type FlightResponse = z.infer<typeof FlightResponseSchema>
+
+/**
+ * Zod schema for a single route waypoint
+ */
+export const RouteWaypointSchema = z.object({
+  latitude: z.number(),
+  longitude: z.number(),
+  altitude: z.number(),
+  time: z.number(),
+})
+
+/**
+ * Zod schema for a flight route response
+ */
+export const FlightRouteSchema = z.object({
+  icao24: z.string(),
+  callsign: z.string(),
+  estDepartureAirport: z.string().nullable(),
+  estArrivalAirport: z.string().nullable(),
+  departureCoords: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  }).nullable(),
+  arrivalCoords: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  }).nullable(),
+  path: z.array(RouteWaypointSchema),
+  hasRoute: z.boolean(),
+})
+
+export type FlightRouteResponse = z.infer<typeof FlightRouteSchema>

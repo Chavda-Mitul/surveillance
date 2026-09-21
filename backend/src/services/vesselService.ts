@@ -15,6 +15,8 @@ let staleCleanupJob: ReturnType<typeof cron.schedule> | null = null
 let isShuttingDown = false
 let authFailed = false
 let totalReceived = 0
+let pingInterval: NodeJS.Timeout | null = null
+let lastPongMs = 0
 
 interface AISMeta {
   MMSI: number
@@ -135,21 +137,69 @@ function connect(): void {
   ws.on("open", () => {
     console.log("aisstream.io WebSocket connected — sending subscription")
     reconnectDelayMs = 1000
-    sendSubscription(ws!)
+    lastPongMs = Date.now()
+
+    // Small delay to ensure connection is fully established
+    setTimeout(() => sendSubscription(ws!), 100)
+
+    // Send periodic pings to keep connection alive (every 25 seconds)
+    pingInterval = setInterval(() => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.ping()
+        // If no pong received in 60 seconds, assume dead
+        if (lastPongMs > 0 && Date.now() - lastPongMs > 60000) {
+          console.warn("No pong from server in 60s, terminating connection")
+          ws.terminate()
+        }
+      }
+    }, 25000)
+  })
+
+  ws.on("ping", () => {
+    // Respond to server pings automatically (ws library handles this)
+  })
+
+  ws.on("pong", () => {
+    lastPongMs = Date.now()
   })
 
   ws.on("message", async (data: WebSocket.RawData) => {
-    const vessel = handleMessage(data.toString())
-    if (vessel) await writeVesselToRedis(vessel)
+    const raw = data.toString()
+    // Debug: log raw messages (trimmed) — comment out after debugging
+    if (raw.startsWith("{")) {
+      const vessel = handleMessage(raw)
+      if (vessel) await writeVesselToRedis(vessel)
+    } else {
+      console.log(`aisstream.io non-JSON message: ${raw.slice(0, 200)}`)
+    }
   })
 
   ws.on("close", (code, reason) => {
-    console.log(`aisstream.io WebSocket closed (${code}): ${reason || "no reason"}`)
+    if (pingInterval) {
+      clearInterval(pingInterval)
+      pingInterval = null
+    }
+    const reasonStr = reason?.toString() || "no reason"
+    console.log(`aisstream.io WebSocket closed (${code}): ${reasonStr}`)
+    console.log(`aisstream.io: last data received ${Date.now() - lastPongMs}ms ago`)
+    if (code === 1006 && pingInterval === null) {
+      console.log("aisstream.io: Connection rejected before first ping — possible auth or rate-limit issue")
+    }
     scheduleReconnect()
   })
 
   ws.on("error", (err) => {
     console.error(`aisstream.io WebSocket error: ${err.message}`)
+  })
+
+  // Listen for HTTP-level response when WebSocket upgrade fails
+  ws.on("unexpected-response", (_req: any, res: any) => {
+    console.error(`aisstream.io unexpected response: HTTP ${res.statusCode}`)
+    let body = ""
+    res.on("data", (chunk: Buffer) => { body += chunk.toString() })
+    res.on("end", () => {
+      console.error(`aisstream.io response body: ${body.slice(0, 500)}`)
+    })
   })
 }
 
@@ -201,6 +251,11 @@ export function startVesselService(): void {
 
 export function stopVesselService(): void {
   isShuttingDown = true
+
+  if (pingInterval) {
+    clearInterval(pingInterval)
+    pingInterval = null
+  }
 
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout)

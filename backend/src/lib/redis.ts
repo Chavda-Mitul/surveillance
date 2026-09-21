@@ -19,12 +19,18 @@ export function getRedis(): RedisClientType {
  */
 export async function connectRedis(): Promise<void> {
   try {
-    redis = createClient({
-      socket: {
-        host: config.redis.host,
-        port: config.redis.port,
-      },
-    })
+    if (config.redis.url) {
+      // Use full URL (supports rediss:// TLS connections like Upstash)
+      redis = createClient({ url: config.redis.url })
+    } else {
+      // Fallback to host/port
+      redis = createClient({
+        socket: {
+          host: config.redis.host,
+          port: config.redis.port,
+        },
+      })
+    }
 
     redis.on("error", (err) => {
       console.error("Redis Client Error:", err)
@@ -39,7 +45,7 @@ export async function connectRedis(): Promise<void> {
     })
 
     await redis.connect()
-    console.log(`Redis connected to ${config.redis.host}:${config.redis.port}`)
+    console.log(`Redis connected to ${config.redis.url || `${config.redis.host}:${config.redis.port}`}`)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"
     throw new RedisConnectionError(`Failed to connect to Redis: ${message}`)

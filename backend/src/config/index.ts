@@ -11,6 +11,7 @@ export const config = {
     origin: process.env.CORS_ORIGIN || "http://localhost:5173",
   },
   redis: {
+    url: process.env.REDIS_URL || undefined,
     host: process.env.REDIS_HOST || "localhost",
     port: parseInt(process.env.REDIS_PORT || "6379", 10),
   },

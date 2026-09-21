@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "project": "Surveillance",
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
   "rewrites": [
@@ -13,8 +12,5 @@
       "memory": 512,
       "maxDuration": 30
     }
-  },
-  "env": {
-    "NODE_VERSION": "20.x"
   }
 }

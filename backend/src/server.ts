@@ -2,6 +2,7 @@ import "dotenv/config"
 
 import Fastify from "fastify"
 import cors from "@fastify/cors"
+import queryRoutes from "./routes/query"
 import satelliteRoutes from "./routes/satellite"
 import vesselRoutes from "./routes/vessel"
 import { connectRedis, disconnectRedis } from "./lib/redis"
@@ -28,6 +29,7 @@ fastify.register(cors, {
 /**
  * Register routes
  */
+fastify.register(queryRoutes, { prefix: "/api" })
 fastify.register(satelliteRoutes, { prefix: "/api" })
 fastify.register(vesselRoutes, { prefix: "/api" })
 

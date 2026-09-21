@@ -33,6 +33,12 @@ export const config = {
     ) as number[][],
     reconnectMaxMs: 60000,
   },
+  openrouter: {
+    apiKey: process.env.OPENROUTER_API_KEY || "",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: process.env.OPENROUTER_MODEL || "zhipu/glm-4-flash",
+    timeout: 30000,
+  },
   jobs: {
     satelliteUpdateCron: "0 */6 * * *", // Every 6 hours
     vesselStaleCleanupCron: "*/15 * * * *", // Every 15 minutes

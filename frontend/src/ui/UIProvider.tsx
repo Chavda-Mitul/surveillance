@@ -1,10 +1,11 @@
 import { type ReactNode } from "react"
 import type { CSSProperties } from "react"
 import { Sidebar } from "./sidebar"
-import { SatellitePanel, VesselPanel } from "./panels"
+import { SatellitePanel, VesselPanel, QueryPanel } from "./panels"
 import type { AppMode } from "./modes"
 import type { SatelliteFilter } from "../components/globe/types"
 import type { VesselFilter } from "../vessels/types"
+import type { QueryResult } from "../spatial/tools"
 
 interface UIProviderProps {
   children: ReactNode
@@ -15,6 +16,16 @@ interface UIProviderProps {
   onStopTracking: () => void
   vesselFilter: VesselFilter
   onVesselFilterChange: (filter: VesselFilter) => void
+  // Spatial query props
+  query: string
+  onQueryChange: (query: string) => void
+  onQuerySubmit: () => void
+  isQueryProcessing: boolean
+  queryResponse: string
+  queryError: string | null
+  queryLastResult: QueryResult | null
+  onQueryClear: () => void
+  onQuerySuggestionClick: (suggestion: string) => void
 }
 
 export function UIProvider({
@@ -26,6 +37,15 @@ export function UIProvider({
   onStopTracking,
   vesselFilter,
   onVesselFilterChange,
+  query,
+  onQueryChange,
+  onQuerySubmit,
+  isQueryProcessing,
+  queryResponse,
+  queryError,
+  queryLastResult,
+  onQueryClear,
+  onQuerySuggestionClick,
 }: UIProviderProps) {
   return (
     <div style={layoutStyles.container}>
@@ -41,6 +61,19 @@ export function UIProvider({
         <VesselPanel
           currentFilter={vesselFilter}
           onFilterChange={onVesselFilterChange}
+        />
+      )}
+      {activeMode === "query" && (
+        <QueryPanel
+          query={query}
+          onQueryChange={onQueryChange}
+          onSubmit={onQuerySubmit}
+          isProcessing={isQueryProcessing}
+          response={queryResponse}
+          error={queryError}
+          lastResult={queryLastResult}
+          onClear={onQueryClear}
+          onSuggestionClick={onQuerySuggestionClick}
         />
       )}
       <div style={layoutStyles.main}>{children}</div>

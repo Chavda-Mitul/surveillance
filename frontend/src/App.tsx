@@ -1,15 +1,22 @@
 import { useState, useCallback, useRef, useEffect } from "react"
+import * as Cesium from "cesium"
 import { UIProvider } from "./ui/UIProvider"
 import Globe, { type GlobeRef } from "./components/Globe"
 import { useSatellites } from "./satellites/useSatellites"
 import { useVessels } from "./vessels/useVessels"
+import { useFlights } from "./flights/useFlights"
 import { useSpatialQuery } from "./spatial/useSpatialQuery"
 import type { AppMode } from "./ui/modes"
 import type { SatelliteFilter } from "./components/globe/types"
 import type { VesselFilter, Vessel } from "./vessels/types"
+import type { FlightFilter, Flight } from "./flights/types"
 import type { SatelliteData } from "./app/layers/satellite/satelliteTypes"
 import { hasLoadData, hasStopTracking } from "./app/layers/satellite/types.guard"
 import type { SpatialAction } from "./spatial/tools"
+import { FLIGHT_INFO_EVENT } from "./app/layers/flight/FlightLayer"
+import { FlightInfoPanel } from "./ui/FlightInfoPanel"
+import { VESSEL_INFO_EVENT } from "./app/layers/vessel/VesselLayer"
+import { VesselInfoPanel } from "./ui/VesselInfoPanel"
 
 /**
  * Main application component
@@ -19,10 +26,49 @@ function App() {
   const [activeMode, setActiveMode] = useState<AppMode>("satellite")
   const [satelliteFilter, setSatelliteFilter] = useState<SatelliteFilter>("gps")
   const [vesselFilter, setVesselFilter] = useState<VesselFilter>("all")
+  const [flightFilter, setFlightFilter] = useState<FlightFilter>("all")
   const globeRef = useRef<GlobeRef>(null)
 
-  const { data: satellites } = useSatellites()
-  const { data: vessels } = useVessels()
+  const { data: satellites } = useSatellites(
+    activeMode === "satellite" || activeMode === "query"
+  )
+  const { data: vessels } = useVessels(
+    activeMode === "vessel" || activeMode === "query"
+  )
+  const { data: flights } = useFlights(
+    activeMode === "flight" || activeMode === "query"
+  )
+
+  /** Selected flight for info popup */
+  const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null)
+
+  /** Selected vessel for info popup */
+  const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null)
+
+  /** Listen for flight info requests from the Cesium layer */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as Flight
+      setSelectedFlight(detail)
+    }
+    window.addEventListener(FLIGHT_INFO_EVENT, handler)
+    return () => window.removeEventListener(FLIGHT_INFO_EVENT, handler)
+  }, [])
+
+  /** Listen for vessel info requests from the Cesium layer */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as Vessel
+      setSelectedVessel(detail)
+    }
+    window.addEventListener(VESSEL_INFO_EVENT, handler)
+    return () => window.removeEventListener(VESSEL_INFO_EVENT, handler)
+  }, [])
+
+  /** Track whether flights have been initially loaded */
+  const flightsLoadedRef = useRef(false)
+  /** Track whether vessels have been initially loaded */
+  const vesselsLoadedRef = useRef(false)
 
   /**
    * Handle spatial query actions from the LLM
@@ -44,13 +90,21 @@ function App() {
           if (layer === "satellite") {
             globe.layerManager.enable("satellite")
             globe.layerManager.disable("vessel")
+            globe.layerManager.disable("flight")
             setActiveMode("satellite")
             setSatelliteFilter(filter as SatelliteFilter)
           } else if (layer === "vessel") {
             globe.layerManager.enable("vessel")
             globe.layerManager.disable("satellite")
+            globe.layerManager.disable("flight")
             setActiveMode("vessel")
             setVesselFilter(filter as VesselFilter)
+          } else if (layer === "flight") {
+            globe.layerManager.enable("flight")
+            globe.layerManager.disable("satellite")
+            globe.layerManager.disable("vessel")
+            setActiveMode("flight")
+            setFlightFilter(filter as FlightFilter)
           }
           break
         }
@@ -58,14 +112,19 @@ function App() {
         case "switchMode": {
           const { mode } = action.payload
           setActiveMode(mode as AppMode)
-          // Also manage layers like handleModeChange
           const lm = globe.layerManager
           if (mode === "satellite") {
             lm.enable("satellite")
             lm.disable("vessel")
+            lm.disable("flight")
           } else if (mode === "vessel") {
             lm.enable("vessel")
             lm.disable("satellite")
+            lm.disable("flight")
+          } else if (mode === "flight") {
+            lm.enable("flight")
+            lm.disable("satellite")
+            lm.disable("vessel")
           }
           break
         }
@@ -76,20 +135,32 @@ function App() {
           if (layer === "satellite") {
             lm.enable("satellite")
             lm.disable("vessel")
+            lm.disable("flight")
             setActiveMode("satellite")
             globe.trackSatellite(identifier)
           } else if (layer === "vessel") {
             lm.enable("vessel")
             lm.disable("satellite")
+            lm.disable("flight")
             setActiveMode("vessel")
             globe.trackVessel(identifier)
+          } else if (layer === "flight") {
+            lm.enable("flight")
+            lm.disable("satellite")
+            lm.disable("vessel")
+            setActiveMode("flight")
+            globe.trackFlight(identifier)
           }
           break
         }
 
         case "showInfo": {
-          // Just log it; the info appears in the response box already
           console.info("[God's Eye]", action.payload.message)
+          break
+        }
+
+        case "answerQuery": {
+          console.info("[God's Eye Answer]", action.payload.message)
           break
         }
       }
@@ -104,7 +175,7 @@ function App() {
   })
 
   /**
-   * Load satellite data when satellite or query mode
+   * Load satellite data
    */
   useEffect(() => {
     if ((activeMode !== "satellite" && activeMode !== "query") || !satellites || !globeRef.current) {
@@ -112,8 +183,7 @@ function App() {
     }
 
     const layerManager = globeRef.current.layerManager
-    
-    // Only enable if explicitly in satellite mode
+
     if (activeMode === "satellite") {
       layerManager.enable("satellite")
     }
@@ -125,23 +195,68 @@ function App() {
   }, [activeMode, satellites])
 
   /**
-   * Load vessel data when vessel or query mode
+   * Load / refresh vessel data
+   * First call uses loadData() to render entities;
+   * subsequent calls use refreshPositions() for in-place updates (preserves trails)
    */
   useEffect(() => {
     if ((activeMode !== "vessel" && activeMode !== "query") || !vessels || !globeRef.current) return
 
     const layerManager = globeRef.current.layerManager
-    
-    // Only enable if explicitly in vessel mode
+
     if (activeMode === "vessel") {
       layerManager.enable("vessel")
     }
 
     const vesselLayer = layerManager.getLayer("vessel")
-    if (vesselLayer && hasLoadData(vesselLayer)) {
-      vesselLayer.loadData(vessels as Vessel[])
+    if (!vesselLayer) return
+
+    if (!vesselsLoadedRef.current) {
+      // First load: render all entities
+      if (hasLoadData(vesselLayer)) {
+        vesselLayer.loadData(vessels as Vessel[])
+      }
+      vesselsLoadedRef.current = true
+    } else {
+      // Subsequent updates: refresh positions in-place (preserves trails)
+      const vl = vesselLayer as any
+      if (typeof vl.refreshPositions === "function") {
+        vl.refreshPositions(vessels as Vessel[])
+      }
     }
   }, [activeMode, vessels])
+
+  /**
+   * Load / refresh flight data
+   * First call uses loadData() to render entities;
+   * subsequent calls use refreshPositions() for in-place updates (preserves trails)
+   */
+  useEffect(() => {
+    if ((activeMode !== "flight" && activeMode !== "query") || !flights || !globeRef.current) return
+
+    const layerManager = globeRef.current.layerManager
+
+    if (activeMode === "flight") {
+      layerManager.enable("flight")
+    }
+
+    const flightLayer = layerManager.getLayer("flight")
+    if (!flightLayer) return
+
+    if (!flightsLoadedRef.current) {
+      // First load: render all entities
+      if (hasLoadData(flightLayer)) {
+        flightLayer.loadData(flights as Flight[])
+      }
+      flightsLoadedRef.current = true
+    } else {
+      // Subsequent updates: refresh positions in-place (preserves trails)
+      const fl = flightLayer as any
+      if (typeof fl.refreshPositions === "function") {
+        fl.refreshPositions(flights as Flight[])
+      }
+    }
+  }, [activeMode, flights])
 
   /**
    * Handle mode switching
@@ -156,15 +271,21 @@ function App() {
     if (mode === "satellite") {
       layerManager.enable("satellite")
       layerManager.disable("vessel")
+      layerManager.disable("flight")
     } else if (mode === "vessel") {
       layerManager.enable("vessel")
       layerManager.disable("satellite")
+      layerManager.disable("flight")
+    } else if (mode === "flight") {
+      layerManager.enable("flight")
+      layerManager.disable("satellite")
+      layerManager.disable("vessel")
     } else if (mode === "query") {
-      // In query mode, keep the current layer enabled
-      // but allow LLM actions to switch between them
+      // In query mode, keep current layer enabled
     } else {
       layerManager.disable("satellite")
       layerManager.disable("vessel")
+      layerManager.disable("flight")
     }
   }, [])
 
@@ -188,7 +309,6 @@ function App() {
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
       spatialQuery.setQuery(suggestion)
-      // Auto-submit after a short delay so the input updates visually
       setTimeout(() => {
         spatialQuery.submitQuery(suggestion)
       }, 50)
@@ -205,6 +325,8 @@ function App() {
       onStopTracking={handleStopTracking}
       vesselFilter={vesselFilter}
       onVesselFilterChange={setVesselFilter}
+      flightFilter={flightFilter}
+      onFlightFilterChange={setFlightFilter}
       // Spatial query props
       query={spatialQuery.query}
       onQueryChange={spatialQuery.setQuery}
@@ -220,9 +342,22 @@ function App() {
         ref={globeRef}
         filter={satelliteFilter}
         vesselFilter={vesselFilter}
+        flightFilter={flightFilter}
         onFilterChange={setSatelliteFilter}
         onStopTracking={handleStopTracking}
       />
+      {selectedFlight && (
+        <FlightInfoPanel
+          flight={selectedFlight}
+          onClose={() => setSelectedFlight(null)}
+        />
+      )}
+      {selectedVessel && (
+        <VesselInfoPanel
+          vessel={selectedVessel}
+          onClose={() => setSelectedVessel(null)}
+        />
+      )}
     </UIProvider>
   )
 }

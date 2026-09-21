@@ -136,36 +136,45 @@ export class SatelliteLayer implements Layer {
 
   /**
    * Render satellites based on current filter
+   * Individual entity failures are caught so a single bad TLE never crashes the layer
    */
   private renderSatellites(): void {
-    this.clearEntities()
+    try {
+      this.clearEntities()
 
-    const filtered = this.satelliteData.filter((sat) => {
-      if (this.filter === "all") return true
-      return classifySatellite(sat.name) === this.filter
-    })
+      const filtered = this.satelliteData.filter((sat) => {
+        if (this.filter === "all") return true
+        return classifySatellite(sat.name) === this.filter
+      })
 
-    filtered.forEach((sat, index) => {
-      this.createSatelliteEntity(sat, index)
-    })
+      filtered.forEach((sat, index) => {
+        this.createSatelliteEntity(sat, index)
+      })
+    } catch (err) {
+      console.error("[SatelliteLayer] renderSatellites failed:", err)
+    }
   }
 
   /**
-   * Create a single satellite entity
+   * Create a single satellite entity, wrapped in try-catch
    */
   private createSatelliteEntity(sat: SatelliteData, index: number): void {
-    const id = this.makeEntityId(sat, index)
-    const entities = this.dataSource?.entities ?? this.viewer.entities
+    try {
+      const id = this.makeEntityId(sat, index)
+      const entities = this.dataSource?.entities ?? this.viewer.entities
 
-    const result = SatelliteEntityFactory.createEntity({
-      id,
-      satelliteData: sat,
-      entityCollection: entities,
-    })
+      const result = SatelliteEntityFactory.createEntity({
+        id,
+        satelliteData: sat,
+        entityCollection: entities,
+      })
 
-    if (result) {
-      this.refs.entities[id] = result.entity
-      this.refs.satrecs[id] = result.satrec
+      if (result) {
+        this.refs.entities[id] = result.entity
+        this.refs.satrecs[id] = result.satrec
+      }
+    } catch (err) {
+      console.warn(`[SatelliteLayer] Failed to create entity for ${sat.name}:`, err)
     }
   }
 
@@ -203,11 +212,15 @@ export class SatelliteLayer implements Layer {
     propagationWorker
       .propagate(jobs)
       .then((results) => {
-        SatelliteEntityFactory.applyBatchResults(
-          this.refs.entities,
-          results,
-          timestamps
-        )
+        try {
+          SatelliteEntityFactory.applyBatchResults(
+            this.refs.entities,
+            results,
+            timestamps
+          )
+        } catch (err) {
+          console.warn("[SatelliteLayer] applyBatchResults threw:", err)
+        }
         workerUpdatePending = false
       })
       .catch((err) => {
@@ -218,14 +231,19 @@ export class SatelliteLayer implements Layer {
 
   /**
    * Fallback: update positions on the main thread (when worker is unavailable)
+   * Each entity is wrapped so one bad propagation never breaks the batch
    */
   private updatePositionsMainThread(): void {
     Object.keys(this.refs.satrecs).forEach((id) => {
-      const satrec = this.refs.satrecs[id]
-      const entity = this.refs.entities[id]
+      try {
+        const satrec = this.refs.satrecs[id]
+        const entity = this.refs.entities[id]
 
-      if (satrec && entity) {
-        SatelliteEntityFactory.updatePositionSamples(entity, satrec)
+        if (satrec && entity) {
+          SatelliteEntityFactory.updatePositionSamples(entity, satrec)
+        }
+      } catch (err) {
+        console.warn(`[SatelliteLayer] Main-thread update failed for entity ${id}:`, err)
       }
     })
   }

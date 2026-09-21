@@ -31,7 +31,8 @@ interface CelestrakOrbitalJson {
  */
 function formatSignedExponential(value: number, totalWidth: number, mantissaDigits: number): string {
   if (value === 0) {
-    return " 0".padStart(totalWidth - 1)
+    // Return a proper zero exponential: e.g. " 00000-0" for (8,5) or " 00000+0"
+    return " 0" + "0".repeat(mantissaDigits - 1) + "+0"
   }
 
   const sign = value >= 0 ? "+" : "-"

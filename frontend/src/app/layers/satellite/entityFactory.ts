@@ -43,7 +43,13 @@ export class SatelliteEntityFactory {
   static createEntity(config: SatelliteEntityConfig): CreatedEntity | null {
     const { id, satelliteData, entityCollection } = config
 
-    const satrec = createSatrec(satelliteData.line1, satelliteData.line2)
+    let satrec
+    try {
+      satrec = createSatrec(satelliteData.line1, satelliteData.line2)
+    } catch {
+      // Malformed TLE — skip this satellite
+      return null
+    }
     if (!satrec) return null
 
     const type = classifySatellite(satelliteData.name)
@@ -83,7 +89,14 @@ export class SatelliteEntityFactory {
         i * UPDATE_INTERVAL_SECONDS,
         new Cesium.JulianDate()
       )
-      const position = getPositionAtTime(satrec, time)
+
+      let position
+      try {
+        position = getPositionAtTime(satrec, time)
+      } catch {
+        // Propagation failure for this sample — skip
+        continue
+      }
 
       if (position) {
         const cartesian = Cesium.Cartesian3.fromDegrees(
@@ -197,7 +210,14 @@ export class SatelliteEntityFactory {
         i * UPDATE_INTERVAL_SECONDS,
         new Cesium.JulianDate()
       )
-      const position = getPositionAtTime(satrec, time)
+
+      let position
+      try {
+        position = getPositionAtTime(satrec, time)
+      } catch {
+        // Propagation failure — skip this sample
+        continue
+      }
 
       if (position) {
         const cartesian = Cesium.Cartesian3.fromDegrees(
@@ -241,31 +261,35 @@ export class SatelliteEntityFactory {
     timestamps: number[]
   ): void {
     for (const [id, positions] of Object.entries(results)) {
-      const entity = entities[id]
-      if (!entity || !entity.position) continue
+      try {
+        const entity = entities[id]
+        if (!entity || !entity.position) continue
 
-      const positionProperty = entity.position as Cesium.SampledPositionProperty
+        const positionProperty = entity.position as Cesium.SampledPositionProperty
 
-      for (let i = 0; i < positions.length; i++) {
-        const pos = positions[i]
-        const ts = timestamps[i]
-        if (!pos) continue
+        for (let i = 0; i < positions.length; i++) {
+          const pos = positions[i]
+          const ts = timestamps[i]
+          if (!pos) continue
 
-        const time = Cesium.JulianDate.fromDate(new Date(ts))
-        const cartesian = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, pos.alt)
+          const time = Cesium.JulianDate.fromDate(new Date(ts))
+          const cartesian = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, pos.alt)
 
-        // Replace existing sample or add new one
-        const existing = positionProperty.getValue(time)
-        if (existing) {
-          // Remove then re-add to update
-          positionProperty.removeSample(time)
+          // Replace existing sample or add new one
+          const existing = positionProperty.getValue(time)
+          if (existing) {
+            // Remove then re-add to update
+            positionProperty.removeSample(time)
+          }
+          positionProperty.addSample(time, cartesian)
         }
-        positionProperty.addSample(time, cartesian)
-      }
 
-      // Update availability
-      if (entity.availability) {
-        entity.availability = SatelliteEntityFactory.createAvailability()
+        // Update availability
+        if (entity.availability) {
+          entity.availability = SatelliteEntityFactory.createAvailability()
+        }
+      } catch (err) {
+        console.warn(`[EntityFactory] applyBatchResults failed for entity ${id}:`, err)
       }
     }
   }

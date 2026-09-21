@@ -3,12 +3,15 @@ import * as Cesium from "cesium"
 import { LayerManager } from "../app/LayerManager"
 import { SatelliteLayer } from "../app/layers/satellite/SatelliteLayer"
 import { VesselLayer } from "../app/layers/vessel/VesselLayer"
+import { FlightLayer } from "../app/layers/flight/FlightLayer"
 import type { SatelliteFilter } from "./globe/types"
 import type { VesselFilter } from "../vessels/types"
+import type { FlightFilter } from "../flights/types"
 
 interface GlobeProps {
   filter: SatelliteFilter
   vesselFilter: VesselFilter
+  flightFilter: FlightFilter
   onFilterChange: (filter: SatelliteFilter) => void
   onStopTracking: () => void
 }
@@ -21,6 +24,8 @@ export interface GlobeRef {
   trackSatellite: (name: string) => void
   /** Track a vessel by MMSI */
   trackVessel: (identifier: string) => void
+  /** Track a flight by callsign or ICAO24 */
+  trackFlight: (identifier: string) => void
   /** Stop tracking any entity */
   stopTracking: () => void
 }
@@ -30,13 +35,14 @@ export interface GlobeRef {
  * Responsible only for Cesium visualization, not UI state
  */
 function GlobeInner(
-  { filter, vesselFilter, onFilterChange, onStopTracking: onStopTrackingProp }: GlobeProps,
+  { filter, vesselFilter, flightFilter }: GlobeProps,
   ref: React.Ref<GlobeRef>
 ) {
   const viewerRef = useRef<Cesium.Viewer | null>(null)
   const layerManagerRef = useRef<LayerManager | null>(null)
   const satelliteLayerRef = useRef<SatelliteLayer | null>(null)
   const vesselLayerRef = useRef<VesselLayer | null>(null)
+  const flightLayerRef = useRef<FlightLayer | null>(null)
 
   // Expose layer manager + spatial query methods to parent
   useImperativeHandle(ref, () => ({
@@ -68,7 +74,6 @@ function GlobeInner(
       const satelliteLayer = satelliteLayerRef.current
       if (!viewer || !satelliteLayer) return
 
-      // Find matching satellite entity
       const entities = satelliteLayer.getEntities()
       for (const entity of entities) {
         if (entity.name?.toLowerCase().includes(name.toLowerCase())) {
@@ -76,8 +81,6 @@ function GlobeInner(
           return
         }
       }
-
-      // If not found by name, try the id field
       for (const entity of entities) {
         const id = entity.id?.toLowerCase() ?? ""
         if (id.includes(name.toLowerCase())) {
@@ -96,6 +99,23 @@ function GlobeInner(
       for (const entity of entities) {
         const entityName = entity.name ?? ""
         if (entityName.includes(identifier) || entity.id?.includes(identifier)) {
+          viewer.trackedEntity = entity
+          return
+        }
+      }
+    },
+
+    trackFlight(identifier: string) {
+      const viewer = viewerRef.current
+      const flightLayer = flightLayerRef.current
+      if (!viewer || !flightLayer) return
+
+      const entities = flightLayer.getEntities()
+      for (const entity of entities) {
+        const entityName = entity.name ?? ""
+        const entityId = entity.id?.toLowerCase() ?? ""
+        const search = identifier.toLowerCase()
+        if (entityName.toLowerCase().includes(search) || entityId.includes(search)) {
           viewer.trackedEntity = entity
           return
         }
@@ -130,9 +150,9 @@ function GlobeInner(
     satelliteLayerRef.current = satelliteLayer
     layerManager.register("satellite", satelliteLayer)
 
-    const dataSource = layerManager.getDataSource("satellite")
-    if (dataSource) {
-      satelliteLayer.setDataSource(dataSource)
+    const satDataSource = layerManager.getDataSource("satellite")
+    if (satDataSource) {
+      satelliteLayer.setDataSource(satDataSource)
     }
 
     // Create and register vessel layer
@@ -145,6 +165,16 @@ function GlobeInner(
       vesselLayer.setDataSource(vesselDataSource)
     }
 
+    // Create and register flight layer
+    const flightLayer = new FlightLayer(viewer)
+    flightLayerRef.current = flightLayer
+    layerManager.register("flight", flightLayer)
+
+    const flightDataSource = layerManager.getDataSource("flight")
+    if (flightDataSource) {
+      flightLayer.setDataSource(flightDataSource)
+    }
+
     return () => {
       layerManager.dispose()
       viewer.destroy()
@@ -153,26 +183,24 @@ function GlobeInner(
 
   // Handle satellite filter changes
   useEffect(() => {
-    const satelliteLayer = satelliteLayerRef.current
-    if (satelliteLayer) {
-      satelliteLayer.setFilter(filter)
-    }
+    satelliteLayerRef.current?.setFilter(filter)
   }, [filter])
 
   // Handle vessel filter changes
   useEffect(() => {
-    const vesselLayer = vesselLayerRef.current
-    if (vesselLayer) {
-      vesselLayer.setFilter(vesselFilter)
-    }
+    vesselLayerRef.current?.setFilter(vesselFilter)
   }, [vesselFilter])
+
+  // Handle flight filter changes
+  useEffect(() => {
+    flightLayerRef.current?.setFilter(flightFilter)
+  }, [flightFilter])
 
   // Handle stop tracking
   useEffect(() => {
     const handleStopTrackingEvent = () => {
       satelliteLayerRef.current?.stopTracking()
     }
-
     window.addEventListener("stopTracking", handleStopTrackingEvent)
     return () => {
       window.removeEventListener("stopTracking", handleStopTrackingEvent)

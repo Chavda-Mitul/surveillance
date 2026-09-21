@@ -14,7 +14,7 @@ export interface FlyToAction {
 export interface FilterLayerAction {
   type: "filterLayer"
   payload: {
-    layer: "satellite" | "vessel"
+    layer: "satellite" | "vessel" | "flight"
     filter: string
   }
 }
@@ -29,7 +29,7 @@ export interface SwitchModeAction {
 export interface TrackEntityAction {
   type: "trackEntity"
   payload: {
-    layer: "satellite" | "vessel"
+    layer: "satellite" | "vessel" | "flight"
     identifier: string
   }
 }
@@ -41,12 +41,20 @@ export interface ShowInfoAction {
   }
 }
 
+export interface AnswerQueryAction {
+  type: "answerQuery"
+  payload: {
+    message: string
+  }
+}
+
 export type SpatialAction =
   | FlyToAction
   | FilterLayerAction
   | SwitchModeAction
   | TrackEntityAction
   | ShowInfoAction
+  | AnswerQueryAction
 
 export interface QueryResult {
   response: string

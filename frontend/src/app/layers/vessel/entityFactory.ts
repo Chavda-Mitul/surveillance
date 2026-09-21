@@ -9,18 +9,25 @@ import {
   VESSEL_LABEL_FONT,
   VESSEL_LABEL_OFFSET_Y,
   VESSEL_LABEL_DISTANCE_CONDITION,
+  VESSEL_TRAIL_WIDTH,
+  VESSEL_TRAIL_OPACITY,
 } from "./constants"
+
+export interface VesselEntityResult {
+  entity: Cesium.Entity
+  trail: Cesium.Entity | null
+}
 
 export class VesselEntityFactory {
   static createEntity(
     vessel: Vessel,
     entityCollection: Cesium.EntityCollection
-  ): Cesium.Entity {
+  ): VesselEntityResult {
     const type = classifyVessel(vessel.vesselType)
     const color = VESSEL_COLORS[type] ?? VESSEL_COLORS.other
     const position = Cesium.Cartesian3.fromDegrees(vessel.lon, vessel.lat, 0)
 
-    return entityCollection.add({
+    const entity = entityCollection.add({
       id: vessel.mmsi,
       position: new Cesium.ConstantPositionProperty(position),
       point: {
@@ -41,11 +48,64 @@ export class VesselEntityFactory {
         distanceDisplayCondition: VESSEL_LABEL_DISTANCE_CONDITION,
         show: false,
       },
+      properties: {
+        mmsi: vessel.mmsi,
+        name: vessel.name,
+        speed: vessel.speed,
+        course: vessel.course,
+        vesselType: vessel.vesselType,
+        type: type,
+      },
     })
+
+    // Create trail polyline (starts as a single point segment)
+    const trailPositions: Cesium.Cartesian3[] = [position, position]
+    const trail = entityCollection.add({
+      id: `vessel-trail-${vessel.mmsi}`,
+      polyline: new Cesium.PolylineGraphics({
+        positions: trailPositions,
+        width: VESSEL_TRAIL_WIDTH,
+        material: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.12,
+          color: color.withAlpha(VESSEL_TRAIL_OPACITY),
+        }),
+        arcType: Cesium.ArcType.RHUMB,
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 30_000_000),
+        clampToGround: true,
+      }),
+      properties: {
+        parentVesselId: vessel.mmsi,
+      },
+    })
+
+    return { entity, trail }
   }
 
-  static updatePosition(entity: Cesium.Entity, vessel: Vessel): void {
+  static updatePosition(
+    entity: Cesium.Entity,
+    vessel: Vessel,
+    trailEntity?: Cesium.Entity | null,
+    positionHistory?: Cesium.Cartesian3[]
+  ): void {
     const position = Cesium.Cartesian3.fromDegrees(vessel.lon, vessel.lat, 0)
-    ;(entity.position as Cesium.ConstantPositionProperty).setValue(position)
+
+    const posProp = entity.position as Cesium.ConstantPositionProperty
+    if (posProp) {
+      posProp.setValue(position)
+    }
+
+    // Update properties
+    if (entity.properties) {
+      entity.properties.speed?.setValue(vessel.speed)
+      entity.properties.course?.setValue(vessel.course)
+    }
+
+    // Update trail if we have history
+    if (trailEntity && positionHistory && positionHistory.length >= 2) {
+      const polyline = trailEntity.polyline as Cesium.PolylineGraphics
+      if (polyline) {
+        polyline.positions = new Cesium.ConstantProperty([...positionHistory])
+      }
+    }
   }
 }

@@ -38,6 +38,12 @@ export class CacheError extends AppError {
   }
 }
 
+export class VesselAPIError extends AppError {
+  constructor(message: string = "VesselAPI request failed") {
+    super(message, 502, "VESSELAPI_ERROR")
+  }
+}
+
 export class AISStreamError extends AppError {
   constructor(message: string = "AISStream WebSocket error") {
     super(message, 502, "AISSTREAM_ERROR")

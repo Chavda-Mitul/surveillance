@@ -20,6 +20,10 @@ const SUGGESTIONS = [
   "Fly to Mumbai and show all vessels",
   "Switch to satellite view and filter by GPS",
   "Where is the ISS right now?",
+  "When will I get a plane above my head? I am in Dindoli, Surat",
+  "Are there any ships near Mumbai right now?",
+  "What flights are over India?",
+  "Show me the plane region of India",
 ]
 
 export function QueryPanel({
@@ -162,6 +166,7 @@ function actionIcon(action: SpatialAction): string {
     case "switchMode": return "🔄"
     case "trackEntity": return "🎯"
     case "showInfo": return "💬"
+    case "answerQuery": return "📊"
   }
 }
 
@@ -177,6 +182,8 @@ function actionLabel(action: SpatialAction): string {
       return `Track ${action.payload.identifier}`
     case "showInfo":
       return "Info"
+    case "answerQuery":
+      return "Answer"
   }
 }
 

@@ -2,12 +2,14 @@ import "dotenv/config"
 
 import Fastify from "fastify"
 import cors from "@fastify/cors"
+import flightRoutes from "./routes/flight"
 import queryRoutes from "./routes/query"
 import satelliteRoutes from "./routes/satellite"
 import vesselRoutes from "./routes/vessel"
 import { connectRedis, disconnectRedis } from "./lib/redis"
 import { startSatelliteJob } from "./job/satelliteJob"
 import { startVesselService, stopVesselService } from "./services/vesselService"
+import { startVesselAPIService, stopVesselAPIService } from "./services/vesselApiService"
 import { config } from "./config"
 
 /**
@@ -29,6 +31,7 @@ fastify.register(cors, {
 /**
  * Register routes
  */
+fastify.register(flightRoutes, { prefix: "/api" })
 fastify.register(queryRoutes, { prefix: "/api" })
 fastify.register(satelliteRoutes, { prefix: "/api" })
 fastify.register(vesselRoutes, { prefix: "/api" })
@@ -53,7 +56,16 @@ async function start(): Promise<void> {
 
     // Start background jobs
     startSatelliteJob()
-    startVesselService()
+    // Start VesselAPI polling (primary vessel data source)
+    startVesselAPIService()
+
+    // Only start aisstream.io WebSocket if VesselAPI key is not configured
+    // (VesselAPI replaces aisstream.io as the primary data source)
+    if (!config.vesselapi.apiKey) {
+      startVesselService()
+    } else {
+      console.log("VesselAPI configured — aisstream.io WebSocket skipped")
+    }
 
     // Start server
     await fastify.listen({
@@ -76,7 +88,10 @@ async function shutdown(signal: string): Promise<void> {
 
   try {
     await fastify.close()
-    stopVesselService()
+    stopVesselAPIService()
+    if (!config.vesselapi.apiKey) {
+      stopVesselService()
+    }
     await disconnectRedis()
     console.log("Shutdown complete")
     process.exit(0)

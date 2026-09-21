@@ -1,10 +1,11 @@
 import { type ReactNode } from "react"
 import type { CSSProperties } from "react"
 import { Sidebar } from "./sidebar"
-import { SatellitePanel, VesselPanel, QueryPanel } from "./panels"
+import { SatellitePanel, VesselPanel, FlightPanel, QueryPanel } from "./panels"
 import type { AppMode } from "./modes"
 import type { SatelliteFilter } from "../components/globe/types"
 import type { VesselFilter } from "../vessels/types"
+import type { FlightFilter } from "../flights/types"
 import type { QueryResult } from "../spatial/tools"
 
 interface UIProviderProps {
@@ -16,6 +17,8 @@ interface UIProviderProps {
   onStopTracking: () => void
   vesselFilter: VesselFilter
   onVesselFilterChange: (filter: VesselFilter) => void
+  flightFilter: FlightFilter
+  onFlightFilterChange: (filter: FlightFilter) => void
   // Spatial query props
   query: string
   onQueryChange: (query: string) => void
@@ -37,6 +40,8 @@ export function UIProvider({
   onStopTracking,
   vesselFilter,
   onVesselFilterChange,
+  flightFilter,
+  onFlightFilterChange,
   query,
   onQueryChange,
   onQuerySubmit,
@@ -61,6 +66,12 @@ export function UIProvider({
         <VesselPanel
           currentFilter={vesselFilter}
           onFilterChange={onVesselFilterChange}
+        />
+      )}
+      {activeMode === "flight" && (
+        <FlightPanel
+          currentFilter={flightFilter}
+          onFilterChange={onFlightFilterChange}
         />
       )}
       {activeMode === "query" && (

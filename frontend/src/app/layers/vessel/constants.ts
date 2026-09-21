@@ -27,3 +27,12 @@ export const VESSEL_COLORS: Record<string, Cesium.Color> = {
   fishing:   Cesium.Color.LIMEGREEN,
   other:     Cesium.Color.LIGHTGRAY,
 }
+
+/**
+ * Vessel path trail constants
+ */
+export const VESSEL_TRAIL_MAX_POSITIONS = 30  // ~15 min of data at 30s intervals
+/** Width of the trailing path polyline */
+export const VESSEL_TRAIL_WIDTH = 1.5
+/** Opacity of the trailing path */
+export const VESSEL_TRAIL_OPACITY = 0.7

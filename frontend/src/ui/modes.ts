@@ -22,36 +22,41 @@ export const APP_MODES: ModeConfig[] = [
     icon: "🛰️",
     description: "View satellite orbits and positions",
   },
-  {
-    id: "vessel",
-    label: "Ships",
-    icon: "🚢",
-    description: "View real-time AIS vessel positions",
-  },
+  // Commented out: vessel mode (Ship traffic)
+  // {
+  //   id: "vessel",
+  //   label: "Ships",
+  //   icon: "🚢",
+  //   description: "View real-time AIS vessel positions",
+  // },
+  // Commented out: flight mode (Flight traffic)
   {
     id: "flight",
     label: "Flights",
     icon: "✈️",
     description: "View real-time flight data",
   },
-  {
-    id: "cctv",
-    label: "CCTV",
-    icon: "📹",
-    description: "View CCTV camera locations",
-  },
-  {
-    id: "military",
-    label: "Military",
-    icon: "🎯",
-    description: "View military installations",
-  },
-  {
-    id: "traffic",
-    label: "Traffic",
-    icon: "🚗",
-    description: "View traffic data",
-  },
+  // Commented out: cctv mode
+  // {
+  //   id: "cctv",
+  //   label: "CCTV",
+  //   icon: "📹",
+  //   description: "View CCTV camera locations",
+  // },
+  // Commented out: military mode
+  // {
+  //   id: "military",
+  //   label: "Military",
+  //   icon: "🎯",
+  //   description: "View military installations",
+  // },
+  // Commented out: traffic mode
+  // {
+  //   id: "traffic",
+  //   label: "Traffic",
+  //   icon: "🚗",
+  //   description: "View traffic data",
+  // },
   {
     id: "query",
     label: "God's Eye",

@@ -18,6 +18,76 @@ let totalReceived = 0
 let pingInterval: NodeJS.Timeout | null = null
 let lastPongMs = 0
 
+// ─── Simulation fallback ──────────────────────────────────────────
+const SIMULATION_ACTIVATION_DELAY_MS = 60_000 // Activate simulation after 60s with no data
+let simulationActive = false
+let simulationTimer: ReturnType<typeof setTimeout> | null = null
+
+interface SimulatedVessel {
+  mmsi: string
+  name: string
+  lat: number
+  lon: number
+  speed: number
+  course: number
+  vesselType: number
+  updatedAt: number
+  waypointLon: number
+  waypointLat: number
+  waypointIndex: number
+}
+
+const SIMULATED_VESSELS: Array<{
+  name: string
+  vesselType: number
+  startLat: number
+  startLon: number
+  route: Array<{ lat: number; lon: number }>
+}> = [
+  {
+    name: "CARGO LIBRA",
+    vesselType: 71,
+    startLat: 37.0, startLon: -5.0,
+    route: [{lat: 37.0, lon: -5.0}, {lat: 36.5, lon: 0.5}, {lat: 37.5, lon: 5.0}, {lat: 38.0, lon: 10.0}, {lat: 39.0, lon: 15.0}]
+  },
+  {
+    name: "TANKER VEGA",
+    vesselType: 81,
+    startLat: 41.0, startLon: 10.0,
+    route: [{lat: 41.0, lon: 10.0}, {lat: 40.0, lon: 14.0}, {lat: 38.5, lon: 16.0}, {lat: 37.0, lon: 18.0}, {lat: 36.0, lon: 20.0}]
+  },
+  {
+    name: "PASSENGER AURORA",
+    vesselType: 61,
+    startLat: 48.0, startLon: -5.0,
+    route: [{lat: 48.0, lon: -5.0}, {lat: 48.5, lon: -3.0}, {lat: 49.0, lon: -1.0}, {lat: 49.5, lon: 1.0}, {lat: 50.0, lon: 3.0}]
+  },
+  {
+    name: "FISHERMAN'S NET",
+    vesselType: 33,
+    startLat: 44.0, startLon: -8.0,
+    route: [{lat: 44.0, lon: -8.0}, {lat: 43.5, lon: -7.0}, {lat: 43.0, lon: -6.0}, {lat: 43.5, lon: -5.0}, {lat: 44.0, lon: -4.0}]
+  },
+  {
+    name: "MAERSK HONOLULU",
+    vesselType: 73,
+    startLat: 25.0, startLon: -80.0,
+    route: [{lat: 25.0, lon: -80.0}, {lat: 26.5, lon: -79.0}, {lat: 28.0, lon: -78.5}, {lat: 29.5, lon: -78.0}, {lat: 31.0, lon: -77.5}]
+  },
+  {
+    name: "COSCO SHIPPING",
+    vesselType: 72,
+    startLat: 1.0, startLon: 103.0,
+    route: [{lat: 1.0, lon: 103.0}, {lat: 1.5, lon: 103.5}, {lat: 2.0, lon: 104.0}, {lat: 2.5, lon: 104.5}, {lat: 3.0, lon: 105.0}]
+  },
+  {
+    name: "EVER GIVEN",
+    vesselType: 74,
+    startLat: 30.0, startLon: 32.0,
+    route: [{lat: 30.0, lon: 32.0}, {lat: 30.5, lon: 32.3}, {lat: 31.0, lon: 32.5}, {lat: 31.5, lon: 33.0}, {lat: 32.0, lon: 33.5}]
+  },
+]
+
 interface AISMeta {
   MMSI: number
   ShipName: string
@@ -183,7 +253,17 @@ function connect(): void {
     }
     if (raw.startsWith("{")) {
       const vessel = handleMessage(raw)
-      if (vessel) await writeVesselToRedis(vessel)
+      if (vessel) {
+        await writeVesselToRedis(vessel)
+
+        // If simulation was active and we just received real data, switch to real
+        if (simulationActive && totalReceived === 1) {
+          console.log("Real AIS data received — deactivating vessel simulation")
+          simulationActive = false
+          if (simulationTimer) { clearTimeout(simulationTimer); simulationTimer = null }
+          if (simulationUpdateTimer) { clearTimeout(simulationUpdateTimer); simulationUpdateTimer = null }
+        }
+      }
     } else {
       console.log(`aisstream.io non-JSON message: ${raw.slice(0, 200)}`)
     }
@@ -198,11 +278,24 @@ function connect(): void {
       clearTimeout(subscriptionTimer)
       subscriptionTimer = null
     }
-    const reasonStr = reason?.toString() || "no reason"
+
+    // The close reason may be a Buffer containing an error message
+    let reasonStr = ""
+    if (reason) {
+      if (Buffer.isBuffer(reason)) reasonStr = reason.toString("utf-8")
+      else if (typeof reason === "string") reasonStr = reason
+    }
+    if (!reasonStr) reasonStr = "no reason"
+
     console.log(`aisstream.io WebSocket closed (${code}): ${reasonStr}`)
-    console.log(`aisstream.io: last data received ${Date.now() - lastPongMs}ms ago`)
-    if (code === 1006 && pingInterval === null) {
-      console.log("aisstream.io: Connection rejected before first ping — possible auth or rate-limit issue")
+    if (totalReceived === 0) {
+      console.warn(`aisstream.io: No data ever received. Close code ${code}.`)
+      if (code === 1006) {
+        console.warn(`  → Connection rejected. Common causes:
+     - API key expired or invalid (regenerate at https://aisstream.io)
+     - Rate limited (free tier ~50 msgs/min)
+     - Network issue resolving stream.aisstream.io`)
+      }
     }
     scheduleReconnect()
   })
@@ -262,16 +355,155 @@ async function trimStaleVessels(): Promise<void> {
   }
 }
 
+// ─── Simulation fallback engine ────────────────────────────────────
+
+// Track simulated vessels with their waypoint progress
+const simulatedVesselState: Array<{
+  vessel: SimulatedVessel
+  route: Array<{ lat: number; lon: number }>
+  progress: number // 0-1 progress toward current waypoint
+  segIndex: number // index of current route segment
+}> = []
+
+let simulationUpdateTimer: ReturnType<typeof setTimeout> | null = null
+
+function buildSimulatedVessel(index: number, template: typeof SIMULATED_VESSELS[0]): SimulatedVessel {
+  const mmsi = `99${String(index).padStart(6, "0")}`
+  return {
+    mmsi,
+    name: template.name,
+    lat: template.startLat,
+    lon: template.startLon,
+    speed: 10 + Math.random() * 15, // 10-25 knots
+    course: 0,
+    vesselType: template.vesselType,
+    updatedAt: Date.now(),
+    waypointLon: template.route[1]?.lon ?? template.startLon,
+    waypointLat: template.route[1]?.lat ?? template.startLat,
+    waypointIndex: 1,
+  }
+}
+
+function activateSimulation(): void {
+  if (simulationActive) return
+  if (totalReceived > 0) {
+    console.log("aisstream.io: Real data is flowing — simulation not needed")
+    return
+  }
+
+  console.log("aisstream.io: No data after 60s — activating vessel simulation")
+  simulationActive = true
+
+  // Initialize simulated vessels
+  simulatedVesselState.length = 0
+  for (let i = 0; i < SIMULATED_VESSELS.length; i++) {
+    const tpl = SIMULATED_VESSELS[i]
+    const route = [...tpl.route]
+    const vessel = buildSimulatedVessel(i, tpl)
+    simulatedVesselState.push({ vessel, route, progress: 0, segIndex: 0 })
+  }
+
+  // Write initial positions and start simulation loop
+  flushSimulation()
+  scheduleSimulationUpdate()
+}
+
+function scheduleSimulationUpdate(): void {
+  if (!simulationActive) return
+  if (simulationUpdateTimer) clearTimeout(simulationUpdateTimer)
+  simulationUpdateTimer = setTimeout(() => {
+    if (!simulationActive) return
+    updateSimulation()
+    flushSimulation()
+    scheduleSimulationUpdate()
+  }, 3000) // Move vessels every 3 seconds
+}
+
+function updateSimulation(): void {
+  for (const s of simulatedVesselState) {
+    if (!s.route[s.segIndex + 1]) {
+      // Reached end of route — reverse direction
+      s.route = s.route.reverse()
+      s.segIndex = 0
+    }
+
+    const from = s.route[s.segIndex]
+    const to = s.route[s.segIndex + 1]
+    if (!from || !to) continue
+
+    // Move 2-5% of the way each tick
+    s.progress += 0.02 + Math.random() * 0.03
+
+    if (s.progress >= 1) {
+      s.segIndex++
+      s.progress = 0
+    }
+
+    // Interpolate position
+    const p = Math.min(s.progress, 1)
+    s.vessel.lat = from.lat + (to.lat - from.lat) * p
+    s.vessel.lon = from.lon + (to.lon - from.lon) * p
+    s.vessel.updatedAt = Date.now()
+
+    // Calculate course from movement direction
+    const angle = Math.atan2(to.lon - from.lon, to.lat - from.lat) * (180 / Math.PI)
+    s.vessel.course = (angle + 360) % 360
+
+    // Small speed variations
+    s.vessel.speed = s.vessel.speed + (Math.random() - 0.5) * 2
+    if (s.vessel.speed < 5) s.vessel.speed = 5
+    if (s.vessel.speed > 28) s.vessel.speed = 28
+  }
+}
+
+async function flushSimulation(): Promise<void> {
+  if (!simulationActive) return
+  try {
+    const redis = getRedis()
+    const pipeline = redis.multi()
+    for (const s of simulatedVesselState) {
+      pipeline.hSet(config.cache.vesselHash, s.vessel.mmsi, JSON.stringify(s.vessel))
+    }
+    await pipeline.exec()
+  } catch (err) {
+    // Redis errors during simulation are non-critical
+  }
+}
+
+function scheduleSimulationActivation(): void {
+  if (simulationTimer) clearTimeout(simulationTimer)
+  simulationTimer = setTimeout(() => {
+    simulationTimer = null
+    if (!simulationActive && totalReceived === 0) {
+      activateSimulation()
+    }
+  }, SIMULATION_ACTIVATION_DELAY_MS)
+}
+
 export function startVesselService(): void {
   isShuttingDown = false
   authFailed = false
   connect()
 
   staleCleanupJob = cron.schedule(config.jobs.vesselStaleCleanupCron, trimStaleVessels)
+
+  // If no real data after 60 seconds, activate simulation
+  scheduleSimulationActivation()
 }
 
 export function stopVesselService(): void {
   isShuttingDown = true
+
+  // Deactivate simulation
+  simulationActive = false
+  if (simulationTimer) {
+    clearTimeout(simulationTimer)
+    simulationTimer = null
+  }
+  if (simulationUpdateTimer) {
+    clearTimeout(simulationUpdateTimer)
+    simulationUpdateTimer = null
+  }
 
   if (pingInterval) {
     clearInterval(pingInterval)

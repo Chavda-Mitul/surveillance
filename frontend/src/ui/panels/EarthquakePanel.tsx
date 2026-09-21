@@ -8,6 +8,7 @@ interface EarthquakePanelProps {
   currentFilter: EarthquakeFilter
   onFilterChange: (filter: EarthquakeFilter) => void
   isMobile?: boolean
+  onClose?: () => void
 }
 
 const FILTER_OPTIONS = [
@@ -17,7 +18,7 @@ const FILTER_OPTIONS = [
   { value: "6.0" as EarthquakeFilter, label: "M6.0+" },
 ]
 
-export function EarthquakePanel({ currentFilter, onFilterChange, isMobile }: EarthquakePanelProps) {
+export function EarthquakePanel({ currentFilter, onFilterChange, isMobile, onClose }: EarthquakePanelProps) {
   // Track the earthquake query status so we can show loading/error feedback
   const isFetching = useIsFetching({ queryKey: ["earthquakes"] }) > 0
   const { error } = useQuery({ queryKey: ["earthquakes"], queryFn: fetchEarthquakes, enabled: false })
@@ -28,6 +29,9 @@ export function EarthquakePanel({ currentFilter, onFilterChange, isMobile }: Ear
         <h2 style={panelStyles.title}>
           <span style={panelStyles.icon}>🌋</span> Hazard Filters
         </h2>
+        {isMobile && onClose && (
+          <button onClick={onClose} style={panelStyles.closeBtn}>✕</button>
+        )}
       </div>
       <div style={panelStyles.content}>
         <Dropdown
@@ -80,6 +84,9 @@ const panelStyles: Record<string, CSSProperties> = {
   header: {
     padding: "12px 16px",
     borderBottom: "1px solid #374151",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   icon: {
     marginRight: 6,
@@ -138,6 +145,15 @@ const panelStyles: Record<string, CSSProperties> = {
   },
   ok: {
     color: "#34d399",
+  },
+  closeBtn: {
+    background: "none",
+    border: "none",
+    color: "#9ca3af",
+    fontSize: 16,
+    cursor: "pointer",
+    padding: "2px 6px",
+    borderRadius: 4,
   },
 }
 

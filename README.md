@@ -1,183 +1,46 @@
 # Satellite Surveillance System
 
-A real-time satellite tracking application built with React, TypeScript, Cesium.js, and Node.js. This application visualizes active satellites in orbit around Earth using TLE (Two-Line Element) data from CelesTrak.
+🌐 **[surveillance-frontend-nine.vercel.app](https://surveillance-frontend-nine.vercel.app/)** — Live demo (backend must run locally for data).
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![React](https://img.shields.io/badge/React-18.x-61DAFB)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6)
-
-## Live Demo
-
-🌐 **[surveillance-frontend-nine.vercel.app](https://surveillance-frontend-nine.vercel.app/)** — Deployed frontend (note: the backend must be running locally for satellite data to load).
+A real-time satellite and vessel tracking app built with React, Cesium.js, and Node.js.
 
 ## Features
 
-- **Real-time Satellite Tracking** - Visualize thousands of active satellites in real-time
-- **Satellite Classification** - Different colors for different satellite types:
-  - 🛰️ ISS (International Space Station)
-  - 📡 Communications (Starlink, Iridium, etc.)
-  - 🛰️ GPS/Navigation (GPS, Galileo, GLONASS)
-  - 💥 Debris
-  - 🔭 Other satellites
-- **Interactive Globe** - 3D Earth visualization using Cesium.js
-- **Orbit Paths** - View predicted orbital paths for any satellite
-- **Filter by Type** - Filter satellites by category
-- **Distance-based Scaling** - Professional UI that scales gracefully when zooming
-- **Click to Track** - Click on any satellite to fly to it and see its orbit
+- **🛰️ Satellite Tracking** — 3D globe with thousands of active satellites from CelesTrak TLE data, color-coded by type (ISS, Starlink, GPS, debris, etc.)
+- **⛵ Vessel Tracking** — Live AIS vessel positions via WebSocket (aisstream.io)
+- **🔄 Orbit Propagation** — Smooth orbital interpolation using satellite.js with `SampledPositionProperty`
+- **🔍 Distance-based Scaling** — Entities scale gracefully as you zoom
+- **📋 Filter by Type** — Toggle satellite categories or apply vessel filters
+- **🎯 Click to Track** — Click to fly, double-click to follow and show orbit path
 
-## Tech Stack
+## Architecture
 
-### Frontend
-- React 18
-- TypeScript
-- Cesium.js (3D globe)
-- React Query (data fetching)
-- Vite (build tool)
+```
+surveillance/
+├── backend/        — Node.js / Fastify + Redis + cron (satellite cache, AIS WebSocket)
+├── frontend/       — React / Cesium.js / Vite + Layer system (satellite, vessel)
+└── README.md
+```
 
-### Backend
-- Node.js
-- Fastify
-- Redis (caching)
-- Zod (validation)
-- Axios (HTTP client)
+- **Backend**: Service per data source → Redis cache → Fastify REST routes  
+- **Frontend**: React Query hooks → `Layer` interface → `Cesium.CustomDataSource` per type  
+- **Layers**: Each data type (satellite, vessel) implements `enable/disable/update` with its own entity factory and constants  
 
-## Prerequisites
-
-- Node.js 18+
-- Redis server
-- Git
-
-## Installation
-
-### 1. Clone the repository
+## Quick Start
 
 ```bash
 git clone https://github.com/Chavda-Mitul/surveillance.git
 cd surveillance
+cd backend && npm install && npm run dev   # requires Redis on :6379
+cd ../frontend && npm install && npm run dev  # http://localhost:5173
 ```
 
-### 2. Install backend dependencies
+## Data Sources
 
-```bash
-cd backend
-npm install
-```
-
-### 3. Install frontend dependencies
-
-```bash
-cd ../frontend
-npm install
-```
-
-### 4. Configure environment variables
-
-Create a `.env` file in the `frontend` directory:
-
-```env
-# Get your free Cesium Ion token from https://ion.cesium.com/
-VITE_CESIUM_TOKEN=your_cesium_ion_token_here
-```
-
-### 5. Start Redis
-
-The application requires Redis for caching satellite data.
-
-**Windows (using Docker):**
-```bash
-docker run -d -p 6379:6379 redis
-```
-
-**Linux/Mac:**
-```bash
-redis-server
-```
-
-Or install Redis natively for your OS.
-
-### 6. Start the backend server
-
-```bash
-cd backend
-npm run dev
-```
-
-The backend will start on `http://localhost:3000`
-
-### 7. Start the frontend development server
-
-```bash
-cd frontend
-npm run dev
-```
-
-The frontend will start on `http://localhost:5173`
-
-## Usage
-
-1. Open `http://localhost:5173` in your browser
-2. Wait for satellite data to load (cached for 12 hours)
-3. Use the filter buttons to show specific satellite types:
-   - **All** - Show all satellites
-   - **ISS** - International Space Station only
-   - **Communications** - Starlink, Iridium, etc.
-   - **GPS** - Navigation satellites
-   - **Debris** - Space debris
-   - **Other** - Other active satellites
-
-### Interactions
-
-| Action | Result |
-|--------|--------|
-| **Click** on satellite | Fly to satellite and show name |
-| **Double-click** on satellite | Track satellite and show orbit path |
-| **Hover** on satellite | Show satellite name |
-| **Scroll** | Zoom in/out |
-| **Drag** | Rotate the globe |
-
-## Project Structure
-
-```
-surveillance/
-├── backend/
-│   ├── src/
-│   │   ├── routes/        # API routes
-│   │   ├── services/      # Business logic
-│   │   ├── schema/        # Zod schemas
-│   │   ├── lib/           # Utilities (Redis)
-│   │   └── job/           # Background jobs
-│   └── package.json
-├── frontend/
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── satellites/    # Satellite utilities
-│   │   └── assets/        # Static assets
-│   ├── public/
-│   │   ├── cesium/        # Cesium.js runtime
-│   │   └── icons/         # Satellite icons
-│   └── package.json
-├── .gitignore
-├── package.json
-└── README.md
-```
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/satellites` | GET | Get all active satellites (cached) |
-
-## Satellite Data Source
-
-This project uses [CelesTrak](https://celestrak.org/) for satellite TLE data:
-- Active satellites: `https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle`
+- **Satellites**: [CelesTrak](https://celestrak.org/) — TLE orbital data  
+- **Vessels**: [AISstream.io](https://aisstream.io/) — real-time AIS positions  
+- **3D Globe**: [Cesium.js](https://cesium.com/)  
 
 ## License
 
-MIT License - feel free to use this project for learning or commercial purposes.
-
-## Acknowledgments
-
-- [CelesTrak](https://celestrak.org/) for satellite orbital data
-- [Cesium](https://cesium.com/) for 3D globe visualization
-- [satellite.js](https://github.com/shashwatak/satellite.js) for orbital calculations
+MIT

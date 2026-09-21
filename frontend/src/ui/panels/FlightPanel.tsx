@@ -8,15 +8,19 @@ interface FlightPanelProps {
   onFilterChange: (filter: FlightFilter) => void
   onStopTracking?: () => void
   isMobile?: boolean
+  onClose?: () => void
 }
 
-export function FlightPanel({ currentFilter, onFilterChange, isMobile }: FlightPanelProps) {
+export function FlightPanel({ currentFilter, onFilterChange, isMobile, onClose }: FlightPanelProps) {
   const filterOptions = FLIGHT_FILTERS.map((f) => ({ value: f, label: f }))
 
   return (
     <div style={isMobile ? mobileStyles.container : panelStyles.container}>
       <div style={panelStyles.header}>
         <h2 style={panelStyles.title}>Flight Filters</h2>
+        {isMobile && onClose && (
+          <button onClick={onClose} style={panelStyles.closeBtn}>✕</button>
+        )}
       </div>
       <div style={panelStyles.content}>
         <Dropdown
@@ -64,6 +68,9 @@ const panelStyles: Record<string, CSSProperties> = {
   header: {
     padding: "12px 16px",
     borderBottom: "1px solid #374151",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   title: {
     margin: 0,
@@ -117,6 +124,15 @@ const panelStyles: Record<string, CSSProperties> = {
     fontSize: 14,
     fontWeight: 500,
     transition: "background-color 0.2s ease",
+  },
+  closeBtn: {
+    background: "none",
+    border: "none",
+    color: "#9ca3af",
+    fontSize: 16,
+    cursor: "pointer",
+    padding: "2px 6px",
+    borderRadius: 4,
   },
 }
 

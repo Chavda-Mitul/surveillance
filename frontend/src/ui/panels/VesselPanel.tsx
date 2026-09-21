@@ -7,15 +7,19 @@ interface VesselPanelProps {
   currentFilter: VesselFilter
   onFilterChange: (filter: VesselFilter) => void
   isMobile?: boolean
+  onClose?: () => void
 }
 
-export function VesselPanel({ currentFilter, onFilterChange, isMobile }: VesselPanelProps) {
+export function VesselPanel({ currentFilter, onFilterChange, isMobile, onClose }: VesselPanelProps) {
   const filterOptions = VESSEL_FILTERS.map((f) => ({ value: f, label: f }))
 
   return (
     <div style={isMobile ? mobileStyles.container : panelStyles.container}>
       <div style={panelStyles.header}>
         <h2 style={panelStyles.title}>Ship Filters</h2>
+        {isMobile && onClose && (
+          <button onClick={onClose} style={panelStyles.closeBtn}>✕</button>
+        )}
       </div>
       <div style={panelStyles.content}>
         <Dropdown
@@ -45,6 +49,9 @@ const panelStyles: Record<string, CSSProperties> = {
   header: {
     padding: "12px 16px",
     borderBottom: "1px solid #374151",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   title: {
     margin: 0,
@@ -63,6 +70,15 @@ const panelStyles: Record<string, CSSProperties> = {
   dropdown: {
     display: "flex",
     flexDirection: "column",
+  },
+  closeBtn: {
+    background: "none",
+    border: "none",
+    color: "#9ca3af",
+    fontSize: 16,
+    cursor: "pointer",
+    padding: "2px 6px",
+    borderRadius: 4,
   },
 }
 

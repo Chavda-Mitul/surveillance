@@ -77,6 +77,12 @@ function parseUSGSResponse(data: unknown): EarthquakeEvent[] {
       continue
     }
 
+    // Skip events with negative magnitudes — USGS assigns negative values
+    // to tiny tremors below detection threshold; they clutter the globe.
+    if (mag < 0) {
+      continue
+    }
+
     events.push({
       id: feature.id,
       magnitude: mag,

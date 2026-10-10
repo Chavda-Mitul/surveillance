@@ -26,61 +26,56 @@ interface CelestrakOrbitalJson {
 }
 
 /**
- * Format a signed number with leading sign, no leading zeros
- * e.g., formatSigned(0.00001234, 10, 8) → "+.12340000-4" or "+12345678-4"
+ * Alpha-5 letters for catalog numbers 100000–339999 (A=10 … Z=33, skipping I and O)
  */
-function formatSignedExponential(value: number, totalWidth: number, mantissaDigits: number): string {
-  if (value === 0) {
-    // Return a proper zero exponential: e.g. " 00000-0" for (8,5) or " 00000+0"
-    return " 0" + "0".repeat(mantissaDigits - 1) + "+0"
+const ALPHA5_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+/**
+ * Format a NORAD catalog number for TLE columns 3-7.
+ * Numbers above 99999 use the Alpha-5 scheme; returns null if not representable.
+ */
+function formatCatalogNumber(id: number): string | null {
+  if (!Number.isInteger(id) || id < 0) return null
+  if (id <= 99999) return String(id).padStart(5, "0")
+  if (id <= 339999) {
+    return ALPHA5_LETTERS[Math.floor(id / 10000) - 10] + String(id % 10000).padStart(4, "0")
   }
-
-  const sign = value >= 0 ? "+" : "-"
-  const absVal = Math.abs(value)
-
-  // Scientific notation: mantissa * 10^exponent
-  // We want format like +12345-5 or -12345+3
-  let exponent = 0
-  let mantissa = absVal
-
-  if (absVal >= 1) {
-    while (mantissa >= 10 && exponent < 99) {
-      mantissa /= 10
-      exponent++
-    }
-    // For values >= 1, the mantissa is displayed without leading decimal
-    const mantissaInt = Math.round(mantissa * Math.pow(10, mantissaDigits - 1))
-    const mantissaStr = String(mantissaInt).padStart(mantissaDigits, "0")
-    return `${sign}${mantissaStr}-${String(exponent).padStart(2, "0")}`.padEnd(totalWidth)
-  } else {
-    while (mantissa < 0.1 && exponent > -99) {
-      mantissa *= 10
-      exponent--
-    }
-    const mantissaInt = Math.round(mantissa * Math.pow(10, mantissaDigits - 1))
-    const mantissaStr = String(mantissaInt).padStart(mantissaDigits, "0")
-    const expStr = exponent < 0 ? `${exponent}` : `+${exponent}`
-    return `${sign}${mantissaStr}${expStr}`
-  }
+  return null
 }
 
 /**
- * Format first derivative of mean motion
- * Format: ±.nnnnnnnn (8 decimal places)
+ * Format a value in TLE "assumed decimal point" exponential notation (8 chars)
+ * e.g. 0.00012345 → " 12345-3", -0.000034 → "-34000-4", 0 → " 00000+0"
+ */
+function formatExponential(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return " 00000+0"
+
+  const sign = value < 0 ? "-" : " "
+  const absVal = Math.abs(value)
+
+  // value = 0.ddddd × 10^exponent
+  let exponent = Math.floor(Math.log10(absVal)) + 1
+  let mantissa = Math.round((absVal / Math.pow(10, exponent)) * 1e5)
+  if (mantissa >= 1e5) {
+    // Rounding overflowed (e.g. 0.999996 → 100000)
+    mantissa = Math.round(mantissa / 10)
+    exponent++
+  }
+
+  // Exponent must fit in a single digit; such values are negligible anyway
+  if (exponent < -9 || exponent > 9) return " 00000+0"
+
+  const expSign = exponent < 0 ? "-" : "+"
+  return `${sign}${String(mantissa).padStart(5, "0")}${expSign}${Math.abs(exponent)}`
+}
+
+/**
+ * Format first derivative of mean motion for TLE columns 34-43
+ * Format: sign + .nnnnnnnn, e.g. " .00006479" or "-.00000035"
  */
 function formatMeanMotionDot(value: number): string {
-  if (value === 0) return " .00000000"
-  const sign = value >= 0 ? " " : "-"
-  const absVal = Math.abs(value)
-  const formatted = absVal.toFixed(8)
-  return `${sign}${formatted}`
-}
-
-/**
- * Pad a number to width, right-justified
- */
-function padNum(value: number, width: number): string {
-  return String(value).padStart(width)
+  const sign = value < 0 ? "-" : " "
+  return sign + Math.abs(value).toFixed(8).replace(/^0/, "")
 }
 
 /**
@@ -100,86 +95,72 @@ function computeChecksum(line: string): number {
 }
 
 /**
+ * Append the checksum to a 68-column line, or return null if the line is malformed.
+ * TLE parsers read fixed columns, so a line of the wrong width is corrupt.
+ */
+function withChecksum(line: string): string | null {
+  if (line.length !== 68) return null
+  return `${line}${computeChecksum(line)}`
+}
+
+/**
  * Build TLE line 1 from orbital elements
  */
-function buildLine1(sat: CelestrakOrbitalJson, epochYear: number, epochDay: number): string {
-  const { NORAD_CAT_ID, CLASSIFICATION_TYPE, OBJECT_ID, MEAN_MOTION_DOT, MEAN_MOTION_DDOT, BSTAR, EPHEMERIS_TYPE, ELEMENT_SET_NO } = sat
+function buildLine1(sat: CelestrakOrbitalJson, catalog: string, epochYear: number, epochDay: number): string | null {
+  // International designator: OBJECT_ID "YYYY-NNNPPP" → "YYNNNPPP" (columns 10-17)
+  const designatorMatch = /^\d{2}(\d{2})-(\d{3})([A-Z]{1,3})$/.exec(sat.OBJECT_ID || "")
+  const designator = designatorMatch
+    ? `${designatorMatch[1]}${designatorMatch[2]}${designatorMatch[3].padEnd(3)}`
+    : " ".repeat(8)
 
-  // Parse international designator from OBJECT_ID: "YYYY-NNNP"
-  let intlYear = "00"
-  let intlLaunchNum = "000"
-  let intlPiece = "  "
-  if (OBJECT_ID) {
-    const parts = OBJECT_ID.split("-")
-    if (parts.length >= 2) {
-      intlYear = parts[0].slice(-2)
-      const rest = parts[1]
-      intlLaunchNum = (rest.slice(0, 3) || "000").padStart(3, "0")
-      intlPiece = (rest.slice(3) || " ").padEnd(2, " ")
-    }
-  }
+  const classification = (sat.CLASSIFICATION_TYPE || "U")[0]
+  const epoch = `${String(epochYear).padStart(2, "0")}${epochDay.toFixed(8).padStart(12, "0")}`
+  const ephemerisType = String(sat.EPHEMERIS_TYPE ?? 0)[0]
+  const elementSet = String((sat.ELEMENT_SET_NO ?? 0) % 10000).padStart(4)
 
-  const catId = String(NORAD_CAT_ID).padStart(5)
-  const classification = (CLASSIFICATION_TYPE || "U")[0] || "U"
-  const epochYearStr = String(epochYear).slice(-2).padStart(2, "0")
-  const epochDayStr = epochDay.toFixed(8).padStart(12, "0")
-
-  // First derivative of mean motion: +.nnnnnnnn or -.nnnnnnnn (spaceship for positive)
-  const bstarExp = formatSignedExponential(BSTAR, 8, 5)
-  const mmDotStr = formatMeanMotionDot(MEAN_MOTION_DOT).padStart(10)
-
-  // Second derivative of mean motion: exponential format
-  const mmDdotStr = formatSignedExponential(MEAN_MOTION_DDOT, 8, 5)
-
-  // Build line without checksum
-  let line = `1 ${catId}${classification} ${intlYear}${intlLaunchNum}${intlPiece} ${epochYearStr}${epochDayStr} ${mmDotStr} ${mmDdotStr} ${bstarExp} ${EPHEMERIS_TYPE}${String(ELEMENT_SET_NO).padStart(4)}`
-
-  // Ensure line is exactly 68 chars before checksum
-  line = line.slice(0, 68).padEnd(68)
-
-  // Compute and append checksum
-  const checksum = computeChecksum(line)
-  return `${line}${checksum}`
+  return withChecksum(
+    `1 ${catalog}${classification} ${designator} ${epoch} ` +
+      `${formatMeanMotionDot(sat.MEAN_MOTION_DOT)} ${formatExponential(sat.MEAN_MOTION_DDOT)} ` +
+      `${formatExponential(sat.BSTAR)} ${ephemerisType} ${elementSet}`
+  )
 }
 
 /**
  * Build TLE line 2 from orbital elements
  */
-function buildLine2(sat: CelestrakOrbitalJson): string {
-  const { NORAD_CAT_ID, INCLINATION, RA_OF_ASC_NODE, ECCENTRICITY, ARG_OF_PERICENTER, MEAN_ANOMALY, MEAN_MOTION, REV_AT_EPOCH } = sat
+function buildLine2(sat: CelestrakOrbitalJson, catalog: string): string | null {
+  const inclination = sat.INCLINATION.toFixed(4).padStart(8)
+  const raan = sat.RA_OF_ASC_NODE.toFixed(4).padStart(8)
+  // Truncate like CelesTrak's own TLEs (epsilon guards against 0.0006775 * 1e7 = 6774.999…)
+  const eccentricity = String(Math.floor(sat.ECCENTRICITY * 1e7 + 1e-6)).padStart(7, "0")
+  const argPerigee = sat.ARG_OF_PERICENTER.toFixed(4).padStart(8)
+  const meanAnomaly = sat.MEAN_ANOMALY.toFixed(4).padStart(8)
+  const meanMotion = sat.MEAN_MOTION.toFixed(8).padStart(11)
+  const revNum = String((sat.REV_AT_EPOCH ?? 0) % 100000).padStart(5)
 
-  const catId = String(NORAD_CAT_ID).padStart(5)
-  const inclination = INCLINATION.toFixed(4).padStart(8)
-  const raan = RA_OF_ASC_NODE.toFixed(4).padStart(8)
-  const eccentricity = String(Math.round(ECCENTRICITY * 1e7)).padStart(7, "0")
-  const argPerigee = ARG_OF_PERICENTER.toFixed(4).padStart(8)
-  const meanAnomaly = MEAN_ANOMALY.toFixed(4).padStart(8)
-  const meanMotion = MEAN_MOTION.toFixed(8).padStart(11)
-  const revNum = String(REV_AT_EPOCH).padStart(5)
-
-  // Build line without checksum
-  let line = `2 ${catId} ${inclination} ${raan} ${eccentricity} ${argPerigee} ${meanAnomaly} ${meanMotion}${revNum}`
-
-  // Ensure line is exactly 68 chars before checksum
-  line = line.slice(0, 68).padEnd(68)
-
-  // Compute and append checksum
-  const checksum = computeChecksum(line)
-  return `${line}${checksum}`
+  return withChecksum(
+    `2 ${catalog} ${inclination} ${raan} ${eccentricity} ${argPerigee} ${meanAnomaly} ${meanMotion}${revNum}`
+  )
 }
 
 /**
- * Convert epoch string to year and fractional day
- * Format: "YYYY-MM-DDTHH:mm:ss.ssssss"
+ * Convert epoch string to 2-digit year and fractional day of year (Jan 1 00:00 = day 1.0)
+ * Format: "YYYY-MM-DDTHH:mm:ss.ssssss" (UTC)
  */
-function epochToYearDay(epochStr: string): [number, number] {
-  const date = new Date(epochStr)
-  const year = date.getUTCFullYear()
+function epochToYearDay(epochStr: string): [number, number] | null {
+  // CelesTrak epochs are UTC but carry no offset — without "Z", JS parses them as local time
+  const hasOffset = /(Z|[+-]\d{2}:?\d{2})$/i.test(epochStr)
+  const date = new Date(hasOffset ? epochStr : `${epochStr}Z`)
+  if (Number.isNaN(date.getTime())) return null
 
-  // Calculate day of year
-  const startOfYear = Date.UTC(year, 0, 0)
-  const diff = date.getTime() - startOfYear
-  const dayOfYear = diff / (1000 * 60 * 60 * 24)
+  const year = date.getUTCFullYear()
+  const msPerDay = 1000 * 60 * 60 * 24
+
+  // JS Dates keep milliseconds only; add back the microseconds CelesTrak provides
+  const fraction = /\.(\d+)/.exec(epochStr)?.[1] ?? ""
+  const subMs = fraction.length > 3 ? Number(`0.${fraction.slice(3)}`) : 0
+
+  const dayOfYear = (date.getTime() + subMs - Date.UTC(year, 0, 1)) / msPerDay + 1
 
   return [year % 100, dayOfYear]
 }
@@ -188,17 +169,18 @@ function epochToYearDay(epochStr: string): [number, number] {
  * Construct TLESatellite from Celestrak orbital JSON
  */
 function orbitalToTLESatellite(entry: CelestrakOrbitalJson): TLESatellite | null {
-  if (!entry.OBJECT_NAME || !entry.NORAD_CAT_ID) return null
+  if (!entry.OBJECT_NAME || !entry.NORAD_CAT_ID || !entry.EPOCH) return null
+
+  const catalog = formatCatalogNumber(entry.NORAD_CAT_ID)
+  const epoch = epochToYearDay(entry.EPOCH)
+  if (!catalog || !epoch) return null
 
   try {
-    const [epochYear, epochDay] = epochToYearDay(entry.EPOCH || "2024-01-01T00:00:00.000000")
+    const line1 = buildLine1(entry, catalog, epoch[0], epoch[1])
+    const line2 = buildLine2(entry, catalog)
 
-    const line1 = buildLine1(entry, epochYear, epochDay)
-    const line2 = buildLine2(entry)
-
-    // Validate length
-    if (line1.length !== 69 || line2.length !== 69) {
-      console.warn(`Invalid constructed TLE for ${entry.OBJECT_NAME}: line1=${line1.length}, line2=${line2.length}`)
+    if (!line1 || !line2) {
+      console.warn(`Invalid constructed TLE for ${entry.OBJECT_NAME}`)
       return null
     }
 
@@ -246,6 +228,9 @@ export async function updateSatelliteCache(): Promise<TLESatellite[]> {
       headers: {
         "User-Agent": "SatelliteSurveillanceApp/1.0",
       },
+      // CelesTrak explains refusals in a plain-text body (with HTTP 403),
+      // so read the body instead of letting axios throw on the status
+      validateStatus: () => true,
     })
 
     const responseData = response.data
@@ -256,10 +241,18 @@ export async function updateSatelliteCache(): Promise<TLESatellite[]> {
         console.log("CelesTrak data not updated since last fetch, using cache")
         const cached = await getSatelliteFromCache()
         if (cached) return cached
-        throw new CelestrakFetchError("No new data from CelesTrak and no cached data available")
+        throw new CelestrakFetchError(
+          "CelesTrak allows one download per 2 hours per IP and no cached data is available"
+        )
       }
 
-      throw new DataParseError("Unexpected text response from CelesTrak")
+      throw new CelestrakFetchError(
+        `CelesTrak returned HTTP ${response.status}: ${responseData.trim().slice(0, 200)}`
+      )
+    }
+
+    if (response.status !== 200) {
+      throw new CelestrakFetchError(`CelesTrak returned HTTP ${response.status}`)
     }
 
     if (!Array.isArray(responseData)) {
@@ -269,15 +262,11 @@ export async function updateSatelliteCache(): Promise<TLESatellite[]> {
     const satellites = parseOrbitalJson(responseData)
     console.log(`Parsed ${satellites.length} satellites`)
 
-    // Update cache
+    // Update cache, plus a non-expiring copy used when CelesTrak is unreachable
     const redis = getRedis()
-    await redis.set(
-      config.cache.satelliteKey,
-      JSON.stringify(satellites),
-      {
-        EX: config.cache.satelliteTTL,
-      }
-    )
+    const json = JSON.stringify(satellites)
+    await redis.set(config.cache.satelliteKey, json, { EX: config.cache.satelliteTTL })
+    await redis.set(config.cache.satelliteFallbackKey, json)
 
     console.log("Satellite cache updated successfully")
     return satellites
@@ -331,6 +320,22 @@ export async function getSatellites(): Promise<TLESatellite[]> {
     return await updateSatelliteCache()
   } catch (error) {
     console.error("Error getting satellites:", error)
+
+    // CelesTrak often returns 403 to shared cloud IPs (e.g. Vercel), so
+    // serve the last-known-good copy instead of failing the whole layer.
+    try {
+      const redis = getRedis()
+      const stale = await redis.get(config.cache.satelliteFallbackKey)
+      if (stale) {
+        console.warn("Serving last-known-good satellite data")
+        // Serve this copy for a while rather than retrying CelesTrak on every request
+        await redis.set(config.cache.satelliteKey, stale, { EX: config.cache.satelliteRetryTTL }).catch(() => {})
+        return JSON.parse(stale) as TLESatellite[]
+      }
+    } catch {
+      // No fallback available
+    }
+
     throw error
   }
 }

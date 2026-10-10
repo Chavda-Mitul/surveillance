@@ -1,5 +1,5 @@
 import cron from "node-cron"
-import { updateSatelliteCache } from "../services/satelliteService"
+import { getSatellites, updateSatelliteCache } from "../services/satelliteService"
 import { config } from "../config"
 
 /**
@@ -8,8 +8,9 @@ import { config } from "../config"
 export function startSatelliteJob(): void {
   console.log("Starting satellite cache update job...")
 
-  // Run immediately when server starts (fire and forget)
-  updateSatelliteCache().catch((error) => {
+  // Warm the cache on start, but only hit CelesTrak if it is empty — CelesTrak
+  // blocks IPs (403) that re-download unchanged data on every restart.
+  getSatellites().catch((error) => {
     console.error("Initial satellite cache update failed:", error)
     console.log("Will retry on next scheduled run")
   })

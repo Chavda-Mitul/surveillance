@@ -94,12 +94,14 @@ function parseUSGSResponse(data: unknown): EarthquakeEvent[] {
     })
   }
 
-  if (events.length === 0) {
+  // Validate through Zod (drops any event that fails the schema)
+  const valid = validateEarthquakeEvents(events)
+
+  if (valid.length === 0) {
     throw new DataParseError("No valid earthquake events could be parsed from USGS response")
   }
 
-  // Validate through Zod
-  return validateEarthquakeEvents(events)
+  return valid
 }
 
 /**

@@ -23,8 +23,15 @@ export function validateEarthquakeEvent(data: unknown): EarthquakeEvent {
 }
 
 /**
- * Validate an array of earthquake events
+ * Validate an array of earthquake events.
+ * Invalid events are dropped individually so one odd record in the USGS
+ * feed (e.g. a negative magnitude) cannot take down the whole response.
  */
-export function validateEarthquakeEvents(data: unknown): EarthquakeEvent[] {
-  return z.array(EarthquakeEventSchema).min(0).parse(data)
+export function validateEarthquakeEvents(data: unknown[]): EarthquakeEvent[] {
+  const valid: EarthquakeEvent[] = []
+  for (const item of data) {
+    const result = EarthquakeEventSchema.safeParse(item)
+    if (result.success) valid.push(result.data)
+  }
+  return valid
 }

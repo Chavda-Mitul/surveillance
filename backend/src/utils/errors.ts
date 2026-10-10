@@ -50,6 +50,12 @@ export class USGSFetchError extends AppError {
   }
 }
 
+export class OpenSkyFetchError extends AppError {
+  constructor(message: string = "Failed to fetch flight data from OpenSky") {
+    super(message, 502, "OPENSKY_FETCH_ERROR")
+  }
+}
+
 export class AISStreamError extends AppError {
   constructor(message: string = "AISStream WebSocket error") {
     super(message, 502, "AISSTREAM_ERROR")

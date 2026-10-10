@@ -1,6 +1,7 @@
 import { config } from "../config"
 import { getRedis } from "../lib/redis"
-import { CelestrakFetchError, DataParseError, CacheError } from "../utils/errors"
+import { openSkyFetch } from "../lib/opensky"
+import { AppError, DataParseError, OpenSkyFetchError } from "../utils/errors"
 
 /**
  * OpenSky API flight state
@@ -53,22 +54,18 @@ export type FlightFilter = "all" | "commercial" | "cargo" | "private" | "militar
  * Fetch flights from OpenSky API with caching to Redis
  */
 async function fetchFlightsFromOpenSky(): Promise<Flight[]> {
-  const url = `${config.opensky.apiUrl}?extended=1`
-
-  const auth = Buffer.from(
-    `${config.opensky.clientId}:${config.opensky.clientSecret}`
-  ).toString("base64")
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Basic ${auth}`,
-    },
-    signal: AbortSignal.timeout(config.opensky.timeout),
-  })
+  let response: Response
+  try {
+    response = await openSkyFetch(config.opensky.apiUrl)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error"
+    throw new OpenSkyFetchError(`OpenSky request failed: ${message}`)
+  }
 
   if (!response.ok) {
-    throw new CelestrakFetchError(
-      `OpenSky API returned status ${response.status}`
+    const hint = response.status === 429 ? " (daily credit limit reached)" : ""
+    throw new OpenSkyFetchError(
+      `OpenSky API returned status ${response.status}${hint}`
     )
   }
 
@@ -115,31 +112,57 @@ async function fetchFlightsFromOpenSky(): Promise<Flight[]> {
 }
 
 /**
- * Get cached flights or fetch fresh data
+ * Write flights to the short-lived cache and the last-known-good copy
+ */
+async function cacheFlights(flights: Flight[]): Promise<void> {
+  try {
+    const redis = getRedis()
+    const json = JSON.stringify(flights)
+    await redis.set(config.cache.flightKey, json, { EX: config.cache.flightTTL })
+    await redis.set(config.cache.flightFallbackKey, json, { EX: config.cache.flightFallbackTTL })
+  } catch {
+    // Non-critical - data is already fetched
+  }
+}
+
+/**
+ * Get cached flights or fetch fresh data.
+ * If OpenSky fails, serve the last-known-good copy rather than an error.
  */
 export async function getFlights(): Promise<Flight[]> {
   try {
-    const redis = await getRedis()
-    const cached = await redis.get(config.cache.flightKey)
-
+    const cached = await getRedis().get(config.cache.flightKey)
     if (cached) {
       return JSON.parse(cached) as Flight[]
     }
+  } catch {
+    // Redis unavailable — fall through to a live fetch
+  }
 
+  try {
     const flights = await fetchFlightsFromOpenSky()
-
-    await redis.set(
-      config.cache.flightKey,
-      JSON.stringify(flights),
-      { EX: config.cache.flightTTL }
-    )
-
+    await cacheFlights(flights)
     return flights
   } catch (error) {
-    if (error instanceof CacheError || error instanceof CelestrakFetchError || error instanceof DataParseError) {
-      throw error
+    console.error("Flight fetch failed:", error instanceof Error ? error.message : error)
+
+    try {
+      const redis = getRedis()
+      const stale = await redis.get(config.cache.flightFallbackKey)
+      if (stale) {
+        console.warn("Serving last-known-good flight data")
+        // Serve this copy until the next refresh window rather than retrying
+        // OpenSky (and spending credits) on every request
+        await redis.set(config.cache.flightKey, stale, { EX: config.cache.flightTTL }).catch(() => {})
+        return JSON.parse(stale) as Flight[]
+      }
+    } catch {
+      // No fallback available
     }
-    throw new CacheError("Failed to fetch flight data")
+
+    if (error instanceof AppError) throw error
+    const message = error instanceof Error ? error.message : "Unknown error"
+    throw new OpenSkyFetchError(`Failed to fetch flight data: ${message}`)
   }
 }
 
@@ -148,17 +171,6 @@ export async function getFlights(): Promise<Flight[]> {
  */
 export async function refreshFlights(): Promise<Flight[]> {
   const flights = await fetchFlightsFromOpenSky()
-
-  try {
-    const redis = await getRedis()
-    await redis.set(
-      config.cache.flightKey,
-      JSON.stringify(flights),
-      { EX: config.cache.flightTTL }
-    )
-  } catch {
-    // Non-critical - data is already fetched
-  }
-
+  await cacheFlights(flights)
   return flights
 }

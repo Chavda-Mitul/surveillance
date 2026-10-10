@@ -58,10 +58,15 @@ async function start(): Promise<void> {
     // Connect to Redis
     await connectRedis()
 
-    // Start background jobs
-    startSatelliteJob()
-    startFlightJob()
-    startEarthquakeJob()
+    // Start background jobs. On Vercel each serverless instance would run its
+    // own copy (and re-fetch on every cold start), which exhausts the OpenSky
+    // quota and gets the IP blocked by CelesTrak. The routes fetch on cache
+    // miss, so the jobs are only needed on a long-running server.
+    if (!process.env.VERCEL) {
+      startSatelliteJob()
+      startFlightJob()
+      startEarthquakeJob()
+    }
     // Start VesselAPI polling (primary vessel data source)
     startVesselAPIService()
 

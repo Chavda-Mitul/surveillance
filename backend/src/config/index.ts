@@ -16,12 +16,20 @@ export const config = {
     port: parseInt(process.env.REDIS_PORT || "6379", 10),
   },
   cache: {
-    satelliteKey: "satellites",
+    // v2: TLE line 1 columns fixed. Data under the old "satellites" key has a
+    // misaligned epoch (parsed as 1962) and must not be served again.
+    satelliteKey: "satellites:v2",
     satelliteTTL: 60 * 60 * 12, // 12 hours in seconds
+    // Last-known-good copies served when the upstream API fails, e.g. CelesTrak
+    // rate-limiting Vercel's shared IPs or OpenSky being down / out of credits.
+    satelliteFallbackKey: "satellites:v2:last-good",
+    satelliteRetryTTL: 60 * 60 * 2, // CelesTrak publishes new data every 2 hours
     vesselHash: "vessels",
     vesselStaleTTLSeconds: 1800, // 30 minutes
     flightKey: "flights",
-    flightTTL: 60, // 60 seconds — background cron keeps cache warm
+    flightTTL: 120, // 2 minutes — keeps OpenSky usage inside the 4000 credits/day quota
+    flightFallbackKey: "flights:last-good",
+    flightFallbackTTL: 60 * 30, // never show aircraft positions older than 30 minutes
   },
   celestrak: {
     url: "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json",
@@ -69,11 +77,16 @@ export const config = {
     clientId: process.env.OPENSKY_CLIENT_ID || "",
     clientSecret: process.env.OPENSKY_CLIENT_SECRET || "",
     apiUrl: "https://opensky-network.org/api/states/all",
-    timeout: 10000, // 10 seconds - OpenSky can be slow
+    // OAuth2 client-credentials endpoint. OpenSky API clients must use a
+    // bearer token — basic auth is ignored and treated as anonymous.
+    tokenUrl: "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+    timeout: 20000, // 20 seconds - the global /states/all payload is large
   },
   jobs: {
     satelliteUpdateCron: "0 */6 * * *", // Every 6 hours
-    flightUpdateCron: "*/30 * * * * *", // Every 30 seconds
+    // Every 2 minutes. A global /states/all call costs 4 OpenSky credits, so
+    // 720 calls/day = 2880 credits, under the 4000/day authenticated quota.
+    flightUpdateCron: "*/2 * * * *",
     vesselStaleCleanupCron: "*/15 * * * *", // Every 15 minutes
     earthquakeUpdateIntervalMs: 120_000, // Every 2 minutes
   },

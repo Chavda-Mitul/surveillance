@@ -1,6 +1,5 @@
-import { config } from "../config"
 import { getRedis } from "../lib/redis"
-import { CelestrakFetchError, DataParseError, CacheError } from "../utils/errors"
+import { openSkyFetch } from "../lib/opensky"
 
 /**
  * Route data for a specific flight
@@ -68,26 +67,6 @@ interface OpenSkyTrackWaypoint {
   trueTrack: number
   /** Ground speed in m/s */
   velocity: number
-}
-
-// Build OpenSky API auth header
-function getAuthHeader(): string {
-  const auth = Buffer.from(
-    `${config.opensky.clientId}:${config.opensky.clientSecret}`
-  ).toString("base64")
-  return `Basic ${auth}`
-}
-
-/**
- * Fetch basic auth headers for OpenSky
- */
-async function openSkyFetch(url: string): Promise<Response> {
-  return fetch(url, {
-    headers: {
-      Authorization: getAuthHeader(),
-    },
-    signal: AbortSignal.timeout(config.opensky.timeout),
-  })
 }
 
 /**

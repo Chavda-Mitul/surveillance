@@ -4,7 +4,7 @@ import { config } from "../config"
 
 /**
  * Start background job to keep flight cache warm
- * Runs every 30 seconds so user-facing requests never wait for OpenSky
+ * Runs every 2 minutes so user-facing requests rarely wait for OpenSky
  */
 export function startFlightJob(): void {
   console.log("Starting flight cache refresh job...")

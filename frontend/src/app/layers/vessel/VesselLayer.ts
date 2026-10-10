@@ -351,10 +351,11 @@ export class VesselLayer implements Layer {
   // ─── Click-to-Info ──────────────────────────────────────────────
 
   private setupClickHandler(): void {
-    const handler = this.viewer.screenSpaceEventHandler
-    if (!handler) return
+    // Own handler per layer so disable() can remove it — setInputAction
+    // returns void, and the viewer's shared handler is also used by other layers
+    const handler = new Cesium.ScreenSpaceEventHandler(this.viewer.scene.canvas)
 
-    this.removeClickHandler = handler.setInputAction(
+    handler.setInputAction(
       (click: { position: Cesium.Cartesian2 }) => {
         const picked = this.viewer.scene.pick(click.position)
         if (!Cesium.defined(picked) || !picked.id) return
@@ -388,6 +389,7 @@ export class VesselLayer implements Layer {
       },
       Cesium.ScreenSpaceEventType.LEFT_CLICK
     )
+    this.removeClickHandler = () => handler.destroy()
   }
 
   // ─── Cleanup ────────────────────────────────────────────────────

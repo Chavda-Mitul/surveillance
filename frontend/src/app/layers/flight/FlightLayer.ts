@@ -249,7 +249,7 @@ export class FlightLayer implements Layer {
         FlightEntityFactory.updatePosition(
           existing.entity,
           flight,
-          existing.trail,
+          existing.trail ?? undefined,
           existing.positionHistory
         )
 
@@ -291,10 +291,11 @@ export class FlightLayer implements Layer {
    * Set up single-click handler: dispatch flight info event + fly to flight
    */
   private setupClickHandler(): void {
-    const handler = this.viewer.screenSpaceEventHandler
-    if (!handler) return
+    // Own handler per layer so disable() can remove it — setInputAction
+    // returns void, and the viewer's shared handler is also used by other layers
+    const handler = new Cesium.ScreenSpaceEventHandler(this.viewer.scene.canvas)
 
-    this.removeClickHandler = handler.setInputAction(
+    handler.setInputAction(
       (click: { position: Cesium.Cartesian2 }) => {
         const picked = this.viewer.scene.pick(click.position)
         if (!Cesium.defined(picked) || !picked.id) return
@@ -327,16 +328,18 @@ export class FlightLayer implements Layer {
       },
       Cesium.ScreenSpaceEventType.LEFT_CLICK
     )
+    this.removeClickHandler = () => handler.destroy()
   }
 
   /**
    * Set up double-click handler: fetch and display full route
    */
   private setupDoubleClickHandler(): void {
-    const handler = this.viewer.screenSpaceEventHandler
-    if (!handler) return
+    // Own handler per layer so disable() can remove it — setInputAction
+    // returns void, and the viewer's shared handler is also used by other layers
+    const handler = new Cesium.ScreenSpaceEventHandler(this.viewer.scene.canvas)
 
-    this.removeDoubleClickHandler = handler.setInputAction(
+    handler.setInputAction(
       (click: { position: Cesium.Cartesian2 }) => {
         const picked = this.viewer.scene.pick(click.position)
         if (!Cesium.defined(picked) || !picked.id) return
@@ -351,6 +354,7 @@ export class FlightLayer implements Layer {
       },
       Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK
     )
+    this.removeDoubleClickHandler = () => handler.destroy()
   }
 
   // ─── Route Display ────────────────────────────────────────────

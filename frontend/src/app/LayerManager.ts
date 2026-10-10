@@ -35,7 +35,6 @@ export class LayerManager {
   private removeTickListener: (() => void) | null = null
   private lastUpdateTime = 0
   private tickCounter = 0
-  private lastViewRect: Cesium.Rectangle | null = null
 
   constructor(viewer: Cesium.Viewer) {
     this.viewer = viewer
@@ -228,7 +227,6 @@ export class LayerManager {
 
       if (shouldCull) {
         viewRect = getViewRectangle(this.viewer.scene)
-        this.lastViewRect = viewRect
       }
 
       let totalVisibleCount = 0

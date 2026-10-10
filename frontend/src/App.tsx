@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from "react"
-import * as Cesium from "cesium"
 import { UIProvider } from "./ui/UIProvider"
 import Globe, { type GlobeRef } from "./components/Globe"
 import { useSatellites } from "./satellites/useSatellites"
@@ -91,7 +90,6 @@ function App() {
   /** Track whether vessels have been initially loaded */
   const vesselsLoadedRef = useRef(false)
   /** Track whether earthquakes have been initially loaded */
-  const earthquakesLoadedRef = useRef(false)
 
   /**
    * Handle spatial query actions from the LLM

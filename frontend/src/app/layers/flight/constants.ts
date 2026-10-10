@@ -1,6 +1,7 @@
 import * as Cesium from "cesium"
+import type { FlightFilter } from "./flightTypes"
 
-export const FLIGHT_FILTERS: string[] = ["all", "commercial", "cargo", "private", "military"]
+export const FLIGHT_FILTERS: FlightFilter[] = ["all", "commercial", "cargo", "private", "military"]
 
 export const FLIGHT_POINT_SIZE = 5
 export const FLIGHT_OUTLINE_WIDTH = 0.5

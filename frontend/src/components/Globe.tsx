@@ -188,7 +188,7 @@ function GlobeInner(
     })
 
     // Performance: disable MSAA, reduce rasterizer samples
-    viewer.scene.fxaa = true
+    viewer.scene.postProcessStages.fxaa.enabled = true
     viewer.scene.highDynamicRange = false
     viewer.scene.logarithmicDepthBuffer = true
     viewer.scene.globe.enableLighting = false
@@ -197,7 +197,6 @@ function GlobeInner(
 
     // Fog for natural culling of distant entities
     viewer.scene.fog.enabled = true
-    viewer.scene.fog.saturation = 0.2
     viewer.scene.fog.density = 0.00005
     viewer.scene.fog.minimumBrightness = 0.8
 

@@ -4,7 +4,6 @@ import { classifyFlight } from "./flightTypes"
 import {
   FLIGHT_LABEL_FONT,
   FLIGHT_LABEL_OFFSET_Y,
-  FLIGHT_SCALE_BY_DISTANCE,
   FLIGHT_LABEL_DISTANCE_CONDITION,
   FLIGHT_BILLBOARD_SCALE_BY_DISTANCE,
   FLIGHT_COLORS,
@@ -294,13 +293,13 @@ export class FlightEntityFactory {
     const labelText = flight.callsign || flight.icao24
     const label = entity.label as Cesium.LabelGraphics
     if (label) {
-      label.text = `${labelText}\n${altitudeKm}km ${speedKnots}kt`
+      label.text = new Cesium.ConstantProperty(`${labelText}\n${altitudeKm}km ${speedKnots}kt`)
     }
 
     // Update billboard rotation to match heading
     const billboard = entity.billboard as Cesium.BillboardGraphics
     if (billboard) {
-      billboard.rotation = Cesium.Math.toRadians(-flight.heading)
+      billboard.rotation = new Cesium.ConstantProperty(Cesium.Math.toRadians(-flight.heading))
     }
 
     // Update properties

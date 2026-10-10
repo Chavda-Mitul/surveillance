@@ -38,6 +38,8 @@ export class SatelliteEventHandlers {
         if (!Cesium.defined(picked) || !picked.id) return
 
         const entity = picked.id as Cesium.Entity
+        // Other layers have their own handlers — ignore their entities
+        if (this.refs.entities[entity.id] !== entity) return
         this.showEntityLabel(entity)
         this.flyToEntity(entity)
       },
@@ -56,6 +58,8 @@ export class SatelliteEventHandlers {
         if (!Cesium.defined(picked) || !picked.id) return
 
         const entity = picked.id as Cesium.Entity
+        // Other layers have their own handlers — ignore their entities
+        if (this.refs.entities[entity.id] !== entity) return
         this.trackEntity(entity)
         this.showOrbitPath(entity)
       },

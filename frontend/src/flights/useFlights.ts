@@ -4,7 +4,7 @@ import type { Flight } from "./types"
 
 /**
  * React Query hook for flight data
- * Polls every 60 seconds — background cron keeps Redis cache hot,
+ * Polls every 60 seconds — backend caches for 2 minutes,
  * so most fetches return instantly from cache instead of hitting OpenSky.
  */
 export function useFlights(enabled: boolean = true) {
